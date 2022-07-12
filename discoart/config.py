@@ -14,7 +14,6 @@ with open(f'{__resources_path__}/default.yml') as ymlfile:
 with open(f'{__resources_path__}/cut-schedules.yml') as ymlfile:
     cut_schedules = yaml.load(ymlfile, Loader=Loader)
 
-
 def load_config(
     user_config: Dict,
 ) -> Dict:
@@ -44,11 +43,7 @@ def load_config(
         if k == 'width_height':
             cfg[k] = [int(vv) for vv in v]
 
-    cfg.update(
-        **{
-            'seed': cfg['seed'] or random.randint(0, 2**32),
-        }
-    )
+    cfg.update(**{'seed': cfg['seed'] or random.randint(0, 2**32),})
 
     _id = random.getrandbits(128).to_bytes(16, 'big').hex()
     if cfg['batch_name']:
@@ -57,43 +52,42 @@ def load_config(
         da_name = f'{__package__}-{_id}'
         from .helper import logger
 
-        logger.debug('you did not set `batch_name`, set it to have unique session ID')
+#        logger.debug('you did not set `batch_name`, set it to have unique session ID')
 
     cfg.update(**{'name_docarray': da_name})
 
     return cfg
 
 
-def save_config_svg(
-    docs: Union['DocumentArray', 'Document', Dict],
-    output: Optional[str] = None,
-) -> None:
-    """
-    Save the config as SVG.
-    :param docs: a DocumentArray or Document or a Document.tags dict
-    :param output: the filename to store the SVG, if not given, it will be saved as `{name_docarray}.svg`
-    :return:
-    """
-    cfg = None
-
-    if isinstance(docs, DocumentArray):
-        cfg = docs[0].tags
-    elif isinstance(docs, Document):
-        cfg = docs.tags
-    elif isinstance(docs, dict):
-        cfg = docs
-
-    from rich.console import Console
-    from rich.terminal_theme import MONOKAI
-
-    console = Console(record=True)
-    print_args_table(load_config(cfg), console)
-    console.save_svg(
-        output or f'{cfg["name_docarray"]}.svg',
-        theme=MONOKAI,
-        title=cfg['name_docarray'],
-    )
-
+#def save_config_svg(
+#    docs: Union['DocumentArray', 'Document', Dict],
+#    output: Optional[str] = None,
+#) -> None:
+#    """
+#    Save the config as SVG.
+#    :param docs: a DocumentArray or Document or a Document.tags dict
+#    :param output: the filename to store the SVG, if not given, it will be saved as `{name_docarray}.svg`
+#    :return:
+#    """
+#    cfg = None
+#
+#    if isinstance(docs, DocumentArray):
+#        cfg = docs[0].tags
+#    elif isinstance(docs, Document):
+#        cfg = docs.tags
+#    elif isinstance(docs, dict):
+#        cfg = docs
+#
+#    from rich.console import Console
+#    from rich.terminal_theme import MONOKAI
+#
+#    console = Console(record=True)
+#    print_args_table(load_config(cfg), console)
+#    console.save_svg(
+#        output or f'{cfg["name_docarray"]}.svg',
+#        theme=MONOKAI,
+#        title=cfg['name_docarray'],
+#    )
 
 def print_args_table(
     cfg, console=None, only_non_default: bool = False, console_print: bool = True
@@ -132,40 +126,39 @@ def print_args_table(
         console.print(param_str)
     return param_str
 
-
-def cheatsheet():
-    from . import __resources_path__
-
-    from rich.table import Table
-    from rich import box
-    from rich.console import Console
-
-    console = Console()
-
-    with open(f'{__resources_path__}/default.yml') as ymlfile:
-        cfg = yaml.load(ymlfile, Loader=Loader)
-    with open(f'{__resources_path__}/docstrings.yml') as ymlfile:
-        docs = yaml.load(ymlfile, Loader=Loader)
-
-    param_tab = Table(
-        title=f'Cheatsheet for all supported parameters',
-        box=box.ROUNDED,
-        highlight=True,
-        show_lines=True,
-        title_justify='center',
-    )
-    param_tab.add_column('Argument', justify='right')
-    param_tab.add_column('Default', justify='left', max_width=10, overflow='fold')
-    param_tab.add_column('Description', justify='left')
-
-    for k, v in sorted(cfg.items()):
-        value = str(v)
-        if k in docs:
-            d_string = docs[k]
-            param_tab.add_row(
-                str(k),
-                value,
-                d_string.replace('[DiscoArt]', '[bold white on red]:new: DiscoArt[/]'),
-            )
-
-    console.print(param_tab)
+#def cheatsheet():
+#    from . import __resources_path__
+#
+#    from rich.table import Table
+#    from rich import box
+#    from rich.console import Console
+#
+#    console = Console()
+#
+#    with open(f'{__resources_path__}/default.yml') as ymlfile:
+#        cfg = yaml.load(ymlfile, Loader=Loader)
+#    with open(f'{__resources_path__}/docstrings.yml') as ymlfile:
+#        docs = yaml.load(ymlfile, Loader=Loader)
+#
+#    param_tab = Table(
+#        title=f'Cheatsheet for all supported parameters',
+#        box=box.ROUNDED,
+#        highlight=True,
+#        show_lines=True,
+#        title_justify='center',
+#    )
+#    param_tab.add_column('Argument', justify='right')
+#    param_tab.add_column('Default', justify='left', max_width=10, overflow='fold')
+#    param_tab.add_column('Description', justify='left')
+#
+#    for k, v in sorted(cfg.items()):
+#        value = str(v)
+#        if k in docs:
+#            d_string = docs[k]
+#            param_tab.add_row(
+#                str(k),
+#                value,
+#                d_string.replace('[DiscoArt]', '[bold white on red]:new: DiscoArt[/]'),
+#            )
+#
+#    console.print(param_tab)

@@ -20,17 +20,12 @@ from .nn.make_cutouts import MakeCutoutsDango
 from .nn.sec_diff import alpha_sigma_to_t
 from .nn.transform import symmetry_transformation_fn
 
-
 def do_run(args, models, device) -> 'DocumentArray':
     _set_seed(args.seed)
     logger.info('preparing models...')
     model, diffusion, clip_models, secondary_model = models
-    normalize = T.Normalize(
-        mean=[0.48145466, 0.4578275, 0.40821073],
-        std=[0.26862954, 0.26130258, 0.27577711],
-    )
+    normalize = T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],std=[0.26862954, 0.26130258, 0.27577711],)
     lpips_model = lpips.LPIPS(net='vgg').to(device)
-
     side_x = (args.width_height[0] // 64) * 64
     side_y = (args.width_height[1] // 64) * 64
     cut_overview = _eval_scheduling_str(args.cut_overview)
@@ -50,9 +45,8 @@ def do_run(args, models, device) -> 'DocumentArray':
     _dp1, _, _output_fn = get_ipython_funcs()
     _dp1.clear_output(wait=True)
 
-    if isinstance(args.text_prompts, str):
-        args.text_prompts = [args.text_prompts]
-
+    if isinstance(args.text_prompts, str): args.text_prompts = [args.text_prompts]
+    
     pmp = PromptParser(on_misspelled_token=args.on_misspelled_token)
     txt_weights = [pmp.parse(prompt) for prompt in args.text_prompts]
 
@@ -93,9 +87,7 @@ def do_run(args, models, device) -> 'DocumentArray':
 
         sum_weight = abs(sum(model_stat['weights']))
         if sum_weight < 1e-3:
-            raise ValueError(
-                f'The sum of all weights in the prompts must *not* be 0 but sum({model_stat["weights"]})={sum_weight}'
-            )
+            raise ValueError(f'The sum of all weights in the prompts must *not* be 0 but sum({model_stat["weights"]})={sum_weight}')
         model_stat['target_embeds'] = torch.cat(model_stat['target_embeds'])
         model_stat['weights'] = torch.tensor(model_stat['weights'], device=device)
         model_stat['weights'] /= sum_weight
@@ -108,48 +100,15 @@ def do_run(args, models, device) -> 'DocumentArray':
 
     if args.perlin_init:
         if args.perlin_mode == 'color':
-            init = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(12)],
-                1,
-                1,
-                False,
-                side_y,
-                side_x,
-                device,
-            )
-            init2 = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(8)], 4, 4, False, side_y, side_x, device
-            )
+            init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
+            init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, False, side_y, side_x, device)
         elif args.perlin_mode == 'gray':
-            init = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(12)], 1, 1, True, side_y, side_x, device
-            )
-            init2 = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device
-            )
+            init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1, True, side_y, side_x, device)
+            init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
         else:
-            init = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(12)],
-                1,
-                1,
-                False,
-                side_y,
-                side_x,
-                device,
-            )
-            init2 = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device
-            )
-        # init = TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device)
-        init = (
-            TF.to_tensor(init)
-            .add(TF.to_tensor(init2))
-            .div(2)
-            .to(device)
-            .unsqueeze(0)
-            .mul(2)
-            .sub(1)
-        )
+            init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
+            init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
+        init = (TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device).unsqueeze(0).mul(2).sub(1))
         del init2
 
     cur_t = None
@@ -258,7 +217,7 @@ def do_run(args, models, device) -> 'DocumentArray':
     else:
         sample_fn = diffusion.plms_sample_loop_progressive
 
-    logger.info('creating artwork...')
+#    logger.info('creating artwork...')
 
     image_display = _output_fn()
     is_busy_evs = [threading.Event(), threading.Event()]
@@ -289,9 +248,7 @@ def do_run(args, models, device) -> 'DocumentArray':
         cur_t = diffusion.num_timesteps - skip_steps - 1
 
         if args.perlin_init:
-            init = regen_perlin(
-                args.perlin_mode, args.side_y, side_x, device, args.batch_size
-            )
+            init = regen_perlin(args.perlin_mode, side_y, side_x, device, args.batch_size)
 
         if args.diffusion_sampling_mode == 'ddim':
             samples = sample_fn(
@@ -344,33 +301,31 @@ def do_run(args, models, device) -> 'DocumentArray':
                         )
 
                     # root doc always update with the latest progress
-                    d.uri = c.uri
-                    _start_persist(
-                        threads,
-                        da_batches,
-                        args.name_docarray,
-                        is_busy_evs,
-                        force=cur_t == -1,
-                    )
+                    #d.uri = c.uri
+                    #_start_persist(
+                    #    threads,
+                    #    da_batches,
+                    #    args.name_docarray,
+                    #    is_busy_evs,
+                    #    force=cur_t == -1,
+                    #)
 
         for t in threads:
             t.join()
         _dp1.clear_output(wait=True)
 
-    logger.info(f'done! {args.name_docarray}')
+    #logger.info(f'done! {args.name_docarray}')
 
     return da_batches
 
-
-def _start_persist(threads, da_batches, name_docarray, is_busy_evs, force):
-    for fn, idle_ev in zip((_silent_save, _silent_push), is_busy_evs):
-        t = Thread(
-            target=fn,
-            args=(da_batches, name_docarray, idle_ev, force),
-        )
-        threads.append(t)
-        t.start()
-
+#def _start_persist(threads, da_batches, name_docarray, is_busy_evs, force):
+#    for fn, idle_ev in zip((_silent_save, _silent_push), is_busy_evs):
+#        t = Thread(
+#            target=fn,
+#            args=(da_batches, name_docarray, idle_ev, force),
+#        )
+#        threads.append(t)
+#        t.start()
 
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
@@ -379,43 +334,42 @@ def _set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
 
-
-def _silent_save(
-    da_batches: DocumentArray,
-    name: str,
-    is_busy_event: threading.Event,
-    force: bool = False,
-) -> None:
-    if is_busy_event.is_set() and not force:
-        logger.debug(f'another save is running, skipping')
-        return
-    is_busy_event.set()
-    try:
-        da_batches.save_binary(f'{name}.protobuf.lz4')
-        logger.debug(f'local backup to {name}.protobuf.lz4')
-    except Exception as ex:
-        logger.debug(f'local backup failed: {ex}')
-    is_busy_event.clear()
-
-
-def _silent_push(
-    da_batches: DocumentArray,
-    name: str,
-    is_busy_event: threading.Event,
-    force: bool = False,
-) -> None:
-    if 'DISCOART_OPTOUT_CLOUD_BACKUP' in os.environ:
-        return
-    if is_busy_event.is_set() and not force:
-        logger.debug(f'another cloud backup is running, skipping')
-        return
-    is_busy_event.set()
-    try:
-        da_batches.push(name)
-        logger.debug(f'cloud backup to {name}')
-    except Exception as ex:
-        logger.debug(f'cloud backup failed: {ex}')
-    is_busy_event.clear()
+#def _silent_save(
+#    da_batches: DocumentArray,
+#    name: str,
+#    is_busy_event: threading.Event,
+#    force: bool = False,
+#) -> None:
+#    if is_busy_event.is_set() and not force:
+#        logger.debug(f'another save is running, skipping')
+#        return
+#    is_busy_event.set()
+#    try:
+#        da_batches.save_binary(f'{name}.protobuf.lz4')
+#        logger.debug(f'local backup to {name}.protobuf.lz4')
+#    except Exception as ex:
+#        logger.debug(f'local backup failed: {ex}')
+#    is_busy_event.clear()
+#
+#
+#def _silent_push(
+#    da_batches: DocumentArray,
+#    name: str,
+#    is_busy_event: threading.Event,
+#    force: bool = False,
+#) -> None:
+#    if 'DISCOART_OPTOUT_CLOUD_BACKUP' in os.environ:
+#        return
+#    if is_busy_event.is_set() and not force:
+#        logger.debug(f'another cloud backup is running, skipping')
+#        return
+#    is_busy_event.set()
+#    try:
+#        da_batches.push(name)
+#        logger.debug(f'cloud backup to {name}')
+#    except Exception as ex:
+#        logger.debug(f'cloud backup failed: {ex}')
+#    is_busy_event.clear()
 
 
 def _eval_scheduling_str(val) -> List[float]:

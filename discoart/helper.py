@@ -28,20 +28,20 @@ from . import __resources_path__
 with open(f'{__resources_path__}/models.yml') as ymlfile:
     models_list = yaml.load(ymlfile, Loader=Loader)
 
-
 def get_device():
+    device = torch.device('cuda:0')
     # check if GPU is available
-
-    if torch.cuda.is_available():
-        device = torch.device('cuda:0')
-    else:
-        device = torch.device('cpu')
-        warnings.warn(
-            '''
-            !!!!CUDA is not available. DiscoArt is running on CPU. `create()` will be unbearably slow on CPU!!!!
-            Please switch to a GPU device. If you are using Google Colab, then free tier would just work.
-            '''
-        )
+    #device = torch.device('cuda:0')
+    #if torch.cuda.is_available():
+    #    device = torch.device('cuda:0')
+    #else:
+    #    device = torch.device('cpu')
+    #    warnings.warn(
+    #        '''
+    #        !!!!CUDA is not available. DiscoArt is running on CPU. `create()` will be unbearably slow on CPU!!!!
+    #        Please switch to a GPU device. If you are using Google Colab, then free tier would just work.
+    #        '''
+    #    )
     return device
 
 
@@ -69,16 +69,16 @@ def is_jupyter() -> bool:  # pragma: no cover
         return False  # Other type (?)
 
 
-def is_google_colab() -> bool:  # pragma: no cover
-    if 'DISCOART_DISABLE_IPYTHON' in os.environ:
-        return False
-
-    try:
-        get_ipython  # noqa: F821
-    except NameError:
-        return False
-    shell = get_ipython().__class__.__name__  # noqa: F821
-    return shell == 'Shell'
+#def is_google_colab() -> bool:  # pragma: no cover
+#    if 'DISCOART_DISABLE_IPYTHON' in os.environ:
+#        return False
+#
+#    try:
+#        get_ipython  # noqa: F821
+#    except NameError:
+#        return False
+#    shell = get_ipython().__class__.__name__  # noqa: F821
+#    return shell == 'Shell'
 
 
 def get_ipython_funcs():
@@ -201,28 +201,26 @@ def load_clip_models(device, enabled: List[str], clip_models: Dict[str, Any] = {
                     .requires_grad_(False)
                     .to(device)
                 )
-            else:
-                raise ValueError(
-                    f'''
-Since v0.1, DiscoArt depends on `open-clip` which supports more CLIP variants and pretrained weights. 
-The new names is now a string in the format of `<model_name>::<pretrained_weights_name>`, e.g. 
-`ViT-B-32::openai` or `ViT-B-32::laion2b_e16`. The full list of supported models and weights can be found here:
-https://github.com/mlfoundations/open_clip#pretrained-model-interface
-'''
-                )
-
+#            else:
+#                raise ValueError(
+#                    f'''
+#Since v0.1, DiscoArt depends on `open-clip` which supports more CLIP variants and pretrained weights. 
+#The new names is now a string in the format of `<model_name>::<pretrained_weights_name>`, e.g. 
+#`ViT-B-32::openai` or `ViT-B-32::laion2b_e16`. The full list of supported models and weights can be found here:
+#https://github.com/mlfoundations/open_clip#pretrained-model-interface
+#'''
+#                )
+#
     # disable not enabled models to save memory
     for k in list(clip_models.keys()):
         if k not in enabled:
             clip_models.pop(k)
-
     return clip_models
 
 
 def _get_sha(path):
     with open(path, 'rb') as f:
         return hashlib.sha256(f.read()).hexdigest()
-
 
 def download_model(model_name: str):
     if os.path.isfile(model_name):
@@ -246,15 +244,12 @@ def download_model(model_name: str):
                 logger.debug(f'{model_filename} is downloaded with correct SHA')
                 break
 
-
 def get_diffusion_config(user_args, device=torch.device('cuda:0')) -> Dict[str, Any]:
     diffusion_model = user_args.diffusion_model
     steps = user_args.steps
     diffusion_config = user_args.diffusion_model_config
 
-    from guided_diffusion.script_util import (
-        model_and_diffusion_defaults,
-    )
+    from guided_diffusion.script_util import (model_and_diffusion_defaults,)
 
     model_config = model_and_diffusion_defaults()
     if diffusion_model in models_list and models_list[diffusion_model].get(
@@ -301,7 +296,6 @@ def get_diffusion_config(user_args, device=torch.device('cuda:0')) -> Dict[str, 
 
     return model_config
 
-
 def load_secondary_model(user_args, device=torch.device('cuda:0')):
     if not user_args.use_secondary_model:
         return
@@ -315,7 +309,6 @@ def load_secondary_model(user_args, device=torch.device('cuda:0')):
     )
     secondary_model.eval().requires_grad_(False).to(device)
     return secondary_model
-
 
 def load_diffusion_model(user_args, device):
     diffusion_model = user_args.diffusion_model
@@ -332,9 +325,7 @@ def load_diffusion_model(user_args, device):
     model_config = get_diffusion_config(user_args, device=device)
 
     logger.debug('loading diffusion model...')
-    from guided_diffusion.script_util import (
-        create_model_and_diffusion,
-    )
+    from guided_diffusion.script_util import (create_model_and_diffusion,)
 
     model, diffusion = create_model_and_diffusion(**model_config)
     if os.path.isfile(diffusion_model):
@@ -350,9 +341,7 @@ def load_diffusion_model(user_args, device):
             param.requires_grad_()
     if model_config['use_fp16']:
         model.convert_to_fp16()
-
     return model, diffusion
-
 
 class PromptParser(SimpleTokenizer):
     def __init__(self, on_misspelled_token: str, **kwargs):
@@ -381,44 +370,43 @@ class PromptParser(SimpleTokenizer):
         for token in re.findall(self.pat, text):
             token = ''.join(self.byte_encoder[b] for b in token.encode('utf-8'))
             all_tokens.append(token)
-        unknowns = [
-            v
-            for v in self.spell.unknown(all_tokens)
-            if len(v) > 2 and self.spell.correction(v) != v
-        ]
-        if unknowns:
-            pairs = []
-            for v in unknowns:
-                vc = self.spell.correction(v)
-                pairs.append((v, vc))
-                if self.on_misspelled_token == 'correct':
-                    for idx, ov in enumerate(all_tokens):
-                        if ov == v:
-                            all_tokens[idx] = vc
-
-            if pairs:
-                warning_str = '\n'.join(
-                    f'Misspelled `{v}`, do you mean `{vc}`?' for v, vc in pairs
-                )
-                if self.on_misspelled_token == 'raise':
-                    raise ValueError(warning_str)
-                elif self.on_misspelled_token == 'correct':
-                    logger.warning(
-                        'auto-corrected the following tokens:\n' + warning_str
-                    )
-                else:
-                    logger.warning(
-                        'Found misspelled tokens in the prompt:\n' + warning_str
-                    )
-
-        logger.debug(f'prompt: {all_tokens}, weight: {weight}')
+#        unknowns = [
+#            v
+#            for v in self.spell.unknown(all_tokens)
+#            if len(v) > 2 and self.spell.correction(v) != v
+#        ]
+#        if unknowns:
+#            pairs = []
+#            for v in unknowns:
+#                vc = self.spell.correction(v)
+#                pairs.append((v, vc))
+#                if self.on_misspelled_token == 'correct':
+#                    for idx, ov in enumerate(all_tokens):
+#                        if ov == v:
+#                            all_tokens[idx] = vc
+#
+#            if pairs:
+#                warning_str = '\n'.join(
+#                    f'Misspelled `{v}`, do you mean `{vc}`?' for v, vc in pairs
+#                )
+#                if self.on_misspelled_token == 'raise':
+#                    raise ValueError(warning_str)
+#                elif self.on_misspelled_token == 'correct':
+#                    logger.warning(
+#                        'auto-corrected the following tokens:\n' + warning_str
+#                    )
+#                else:
+#                    logger.warning(
+#                        'Found misspelled tokens in the prompt:\n' + warning_str
+#                    )
+#
+#        logger.debug(f'prompt: {all_tokens}, weight: {weight}')
         return ' '.join(all_tokens), weight
 
 
 def free_memory():
     gc.collect()
     torch.cuda.empty_cache()
-
 
 def show_result_summary(_da, _name, _args):
     from .config import print_args_table
@@ -427,70 +415,70 @@ def show_result_summary(_da, _name, _args):
 
     _dp1.clear_output(wait=True)
 
-    from rich.markdown import Markdown
-
-    md = Markdown(
-        f'''
-## Result preview
-
-This preview is **not** in HD. To save full-size image please check out the instruction below.
-    ''',
-        code_theme='igor',
-    )
-    _dp1.display(md)
-
-    if _da and _da[0].uri:
-        _da.plot_image_sprites(skip_empty=True, show_index=True, keep_aspect_ratio=True)
-
-    print_args_table(vars(_args))
-
-    persist_file = _fl(
-        f'{_name}.protobuf.lz4',
-        result_html_prefix=f'▶ Download the local backup (in case cloud storage failed): ',
-    )
-    config_file = _fl(
-        f'{_name}.svg',
-        result_html_prefix=f'▶ Download the config as SVG image: ',
-    )
-
-    md = Markdown(
-        f'''
-
-
-## Save the image
-
-There are two ways to save the HD image:
-
-- `da[0].display()` and then right-click "Download image";
-- or `da[0].save_uri_to_file('filename.png')` and find `filename.png` in your filesystem. On Google Colab, open the left pannel of "file structure" and you shall see it.
-
-`da[0]` represents the first image in your batch. You can save the 2nd, 3rd, etc. image by using `da[1]`, `da[2]`, etc.  
-
-## Save & load the batch        
-
-Results are stored in a [DocumentArray](https://docarray.jina.ai/fundamentals/documentarray/) available both local and cloud.
+#    from rich.markdown import Markdown
+#
+#    md = Markdown(
+#        f'''
+### Result preview
+#
+#This preview is **not** in HD. To save full-size image please check out the instruction below.
+#    ''',
+#        code_theme='igor',
+#    )
+#    _dp1.display(md)
+#
+#    if _da and _da[0].uri:
+#        _da.plot_image_sprites(skip_empty=True, show_index=True, keep_aspect_ratio=True)
+#
+#    print_args_table(vars(_args))
+#
+#    persist_file = _fl(
+#        f'{_name}.protobuf.lz4',
+#        result_html_prefix=f'▶ Download the local backup (in case cloud storage failed): ',
+#    )
+#    config_file = _fl(
+#        f'{_name}.svg',
+#        result_html_prefix=f'▶ Download the config as SVG image: ',
+#    )
+#
+#    md = Markdown(
+#        f'''
 
 
-You may also download the file manually and load it from local disk:
-
-```python
-da = DocumentArray.load_binary('{_name}.protobuf.lz4')
-```
-
-You can simply pull it from any machine:
-
-```python
-# pip install docarray[common]
-from docarray import DocumentArray
-
-da = DocumentArray.pull('{_name}')
-```
-
-More usage such as plotting, post-analysis can be found in the [README](https://github.com/jina-ai/discoart).
-            ''',
-        code_theme='igor',
-    )
-    if is_google_colab():
-        _dp1.display(md)
-    else:
-        _dp1.display(config_file, persist_file, md)
+### Save the image
+#
+#There are two ways to save the HD image:
+#
+#- `da[0].display()` and then right-click "Download image";
+#- or `da[0].save_uri_to_file('filename.png')` and find `filename.png` in your filesystem. On Google Colab, open the left pannel of "file structure" and you shall see it.
+#
+#`da[0]` represents the first image in your batch. You can save the 2nd, 3rd, etc. image by using `da[1]`, `da[2]`, etc.  
+#
+### Save & load the batch        
+#
+#Results are stored in a [DocumentArray](https://docarray.jina.ai/fundamentals/documentarray/) available both local and cloud.
+#
+#
+#You may also download the file manually and load it from local disk:
+#
+#```python
+#da = DocumentArray.load_binary('{_name}.protobuf.lz4')
+#```
+#
+#You can simply pull it from any machine:
+#
+#```python
+## pip install docarray[common]
+#from docarray import DocumentArray
+#
+#da = DocumentArray.pull('{_name}')
+#```
+#
+#More usage such as plotting, post-analysis can be found in the [README](https://github.com/jina-ai/discoart).
+#            ''',
+#        code_theme='igor',
+#    )
+#    if is_google_colab():
+#        _dp1.display(md)
+#    else:
+#        _dp1.display(config_file, persist_file, md)
