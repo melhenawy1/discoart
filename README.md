@@ -17,16 +17,11 @@ DiscoArt is an elegant way of creating compelling Disco Diffusion<sup><a href="#
 Disco Diffusion is a Google Colab Notebook that leverages CLIP-Guided Diffusion to allow one to create compelling and beautiful images from text prompts.
 </sup></sub>
 
-
-💯 **Best-in-class**: top-notch code quality, correctness-first, minimum dependencies; including bug fixes, feature improvements vs. the original DD5.5. 
-
 👼 **Available to all**: fully optimized for Google Colab *free tier*! Perfect for those who don't own GPU by themselves.
 
 🎨 **Focus on create not code**: one-liner `create()` with a Pythonic interface, autocompletion in IDE, and powerful features. Fetch real-time results anywhere anytime, no more worry on session outrage on Google Colab. Set initial state easily for more efficient parameter exploration.
 
 🏭 **Ready for integration & production**: built on top of [DocArray](https://github.com/jina-ai/docarray) data structure, enjoy smooth integration with [Jina](https://github.com/jina-ai/jina), [CLIP-as-service](https://github.com/jina-ai/clip-as-service) and other cross-/multi-modal applications.
-
-☁️ [**As-a-service**](#serving): simply `python -m discoart.serve`, DiscoArt is now a high-performance low-latency service supports gRPC/HTTP/websockets and TLS. Scaling up/down is one-line; Cloud-native features e.g. Kubernetes, Prometheus and Grafana is one-line. Unbelievable simple.
 
 
 ## [Gallery with prompts](https://twitter.com/hxiao/status/1542967938369687552?s=20&t=DO27EKNMADzv4WjHLQiPFA) 
@@ -36,16 +31,11 @@ Disco Diffusion is a Google Colab Notebook that leverages CLIP-Guided Diffusion 
 pip install discoart
 ```
 
-- If you want to start a Jupyter Notebook on your own GPU machine, the easiest way is to [use our prebuilt Docker image](#run-in-docker).
-- If you are not using Google Colab/Jupyter Notebook, then other dependencies might be required [as described in the Dockerfile](./Dockerfile).
-
-
+If you are not using DiscoArt under Google Colab, then other dependencies might be required.
 
 ## Get Started
 
 <a href="https://colab.research.google.com/github/jina-ai/discoart/blob/main/discoart.ipynb"><img src="https://img.shields.io/badge/Open-in%20Colab-brightgreen?logo=google-colab&style=flat-square" alt="Open in Google Colab"/></a>
-
-Note, GPU is required. [For serving DiscoArt, click here.](#serving)
 
 ### Create artworks
 
@@ -66,24 +56,15 @@ Supported parameters are [listed here](./discoart/resources/default.yml). You ca
 ```python
 from discoart import create
 
-da = create(
-    text_prompts='A painting of sea cliffs in a tumultuous storm, Trending on ArtStation.',
-    init_image='https://d2vyhzeko0lke5.cloudfront.net/2f4f6dfa5a05e078469ebe57e77b72f0.png',
-    skip_steps=100,
-)
+da = create(text_prompts='A painting of sea cliffs in a tumultuous storm, Trending on ArtStation.',
+            init_image='https://d2vyhzeko0lke5.cloudfront.net/2f4f6dfa5a05e078469ebe57e77b72f0.png',
+            skip_steps=100)
 ```
 
 ![](.github/parameter-demo.gif)
 
-In case you forgot a parameter, just lookup the cheatsheet at anytime:
 
-```python
-from discoart import cheatsheet
-
-cheatsheet()
-```
-
-The difference on the parameters between DiscoArt and DD5.5 [is explained here](./FEATURES.md). 
+[This docs explains those parameters in very details.](https://docs.google.com/document/d/1l8s7uS2dGqjztYSjPpzlmXLjl5PM3IGkRWI3IiCuK7g/mobilebasic) The minor difference on the parameters between DiscoArt and DD5.x [is explained here](#whats-next).
 
 
 ### Visualize results
@@ -134,18 +115,14 @@ da[0].display()
 You can also zoom into a run (say the first run) and check out intermediate steps:
 
 ```python
-da[0].chunks.plot_image_sprites(
-    skip_empty=True, show_index=True, keep_aspect_ratio=True
-)
+da[0].chunks.plot_image_sprites(skip_empty=True, show_index=True, keep_aspect_ratio=True)
 ```
 ![](.github/chunks.png)
 
 You can `.display()` the chunks one by one, or save one via `.save_uri_to_file()`, or save all intermediate steps as a GIF:
 
 ```python
-da[0].chunks.save_gif(
-    'lighthouse.gif', show_index=True, inline_display=True, size_ratio=0.5
-)
+da[0].chunks.save_gif('lighthouse.gif', show_index=True, inline_display=True, size_ratio=0.5)
 ```
 
 ![](.github/lighthouse.gif)
@@ -186,26 +163,23 @@ from docarray import DocumentArray
 
 da = DocumentArray.pull('discoart-3205998582')
 
-create(
-    init_document=da[0],
-    cut_ic_pow=0.5,
-    tv_scale=600,
-    cut_overview='[12]*1000',
-    cut_innercut='[12]*1000',
-    use_secondary_model=False,
-)
+create(init_document=da[0],
+       cut_ic_pow=0.5,
+       tv_scale=600, 
+       cut_overview='[12]*1000', 
+       cut_innercut='[12]*1000', 
+       use_secondary_model=False)
 ```
 
 
-### Environment variables
+### Verbose logs
 
-You can set environment variables to control the behavior of DiscoArt. The environment variables must be set before importing DiscoArt:
+You can also get verbose logs by setting the following lines before import `discoart`:
 
-```bash
-DISCOART_LOG_LEVEL='DEBUG' # more verbose logs
-DISCOART_OPTOUT_CLOUD_BACKUP='1' # opt-out from cloud backup
-DISCOART_DISABLE_IPYTHON='1' # disable ipython dependency
-DISCOART_DISABLE_RESULT_SUMMARY='1' # disable result summary after the run ends
+```python
+import os
+
+os.environ['DISCOART_LOG_LEVEL'] = 'DEBUG'
 ```
 
 ### Run in Docker
@@ -216,87 +190,21 @@ We provide a prebuilt Docker image for running DiscoArt in the Jupyter Notebook.
 
 ```bash
 # docker build . -t jinaai/discoart  # if you want to build yourself
-docker run -p 51000:8888 -v $(pwd):/home/jovyan/ -v $HOME/.cache:/root/.cache --gpus all jinaai/discoart
+docker run -p 51000:8888 -v $(pwd):/home/jovyan/ --gpus all jinaai/discoart
 ```
 
 
-## Serving
-
-Serving DiscoArt is super easy. Simply run the following command:
-
-```bash
-python -m discoart.serve
-```
-
-You shall see:
-
-![](.github/serving.png)
-
-Now send request to the server via curl/Javascript, e.g.
-
-```bash
-curl \
--X POST http://0.0.0.0:51001/post \  # use private/public if your server is remote
--H 'Content-Type: application/json' \
--d '{"parameters": {"text_prompts": ["A beautiful painting of a singular lighthouse", "yellow color scheme"]}}'
-```
-
-That's it. 
-
-You can of course pass all parameters that accepted by `create()` function in the JSON.
-
-### Scaling out
-
-If you have multiple GPUs and you want to run multiple DiscoArt instances in parallel by leveraging GPUs in a time-multiplexed fashion, you can copy-paste the [default `flow.yml` file](./discoart/resources/flow.yml) and modify it as follows:
-
-```yaml
-jtype: Flow
-with:
-  protocol: http
-  monitoring: true
-  port: 51001
-  port_monitoring: 51002  # prometheus monitoring port
-  env:
-    JINA_LOG_LEVEL: debug
-    DISCOART_DISABLE_IPYTHON: 1
-    DISCOART_DISABLE_RESULT_SUMMARY: 1
-executors:
-  - name: discoart
-    uses: DiscoArtExecutor
-    env:
-      CUDA_VISIBLE_DEVICES: RR0:3  # change this if you have multiple GPU
-    replicas: 3  # change this if you have larger VRAM
-```
-
-Here `replicas: 3` says spawning three DiscoArt instances, `CUDA_VISIBLE_DEVICES: RR0:3` makes sure they use the first three GPUs in a round-robin fashion.
-
-Name it as `myflow.yml` and then run `python -m discoart.serve myflow.yml` again.
-
-### Customization
-
-You can change the port number; change protocol to gRPC/Websockets; add TLS encryption; enable/disable Prometheus monitoring; you can also export it to Kubernetes deployment bundle simply via:
-
-```bash
-jina export kubernetes myflow.yml
-```
-
-For more features and YAML configs, [please check out Jina](https://github.com/jina-ai/jina).
-
-
-### Hosting on Google Colab
-
-Though not recommended, it is also possible to use Google Colab to host DiscoArt server. 
-Please check out the following tutorials:
-- https://docs.jina.ai/how-to/google-colab/
-- https://clip-as-service.jina.ai/hosting/colab/
 
 ## What's next?
 
 [Next is create](https://colab.research.google.com/github/jina-ai/discoart/blob/main/discoart.ipynb).
 
-😎 **If you are already a DD user**: you are ready to go! There is no extra learning, DiscoArt respects the same parameter semantics as DD5.5. So just unleash your creativity! [Read more about their differences here](./FEATURES.md)
+😎 **If you are already a DD user**: you are ready to go! There is no extra learning, DiscoArt respects the same parameter semantics as DD5.2. So just unleash your creativity!
 
-You can always do `from discoart import cheatsheet; cheatsheet()` to check all new/modified parameters.
+There are some minor differences between DiscoArt and DD5.x:
+  - DiscoArt does not support video generation and `image_prompt` (which was marked as ineffective in DD 5.2).
+  - Due to no video support, `text_prompts` in DiscoArt accepts a string or a list of strings, not a dictionary; i.e. no frame index `0:` or `100:`.
+  - `clip_models` accepts a list of values chosen from `ViT-B/32`, `ViT-B/16`, `ViT-L/14`, `RN101`, `RN50`, `RN50x4`, `RN50x16`, `RN50x64`. Slightly different in names vs. DD5.2. 
 
 👶 **If you are a [DALL·E Flow](https://github.com/jina-ai/dalle-flow/) or new user**: you may want to take step by step, as Disco Diffusion works in a very different way than DALL·E. It is much more advanced and powerful: e.g. Disco Diffusion can take weighted & structured text prompts; it can initialize from a image with controlled noise; and there are way more parameters one can tweak. Impatient prompt like `"armchair avocado"` will give you nothing but confusion and frustration. I highly recommend you to check out the following resources before trying your own prompt:
 - [Zippy's Disco Diffusion Cheatsheet v0.3](https://docs.google.com/document/d/1l8s7uS2dGqjztYSjPpzlmXLjl5PM3IGkRWI3IiCuK7g/mobilebasic)

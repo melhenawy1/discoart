@@ -1,38 +1,39 @@
 import gc
-import os
 import random
-import threading
 from threading import Thread
-from typing import List
 
+import clip
 import lpips
 import numpy as np
-import open_clip as clip
 import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
+from IPython import display
 from docarray import DocumentArray, Document
+from ipywidgets import Output
 
 from .config import print_args_table
-from .helper import logger, PromptParser, get_ipython_funcs
+from .helper import parse_prompt, logger
 from .nn.losses import spherical_dist_loss, tv_loss, range_loss
 from .nn.make_cutouts import MakeCutoutsDango
 from .nn.sec_diff import alpha_sigma_to_t
-from .nn.transform import symmetry_transformation_fn
+
 
 def do_run(args, models, device) -> 'DocumentArray':
     _set_seed(args.seed)
     logger.info('preparing models...')
     model, diffusion, clip_models, secondary_model = models
-    normalize = T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],std=[0.26862954, 0.26130258, 0.27577711],)
+    normalize = T.Normalize(
+        mean=[0.48145466, 0.4578275, 0.40821073],
+        std=[0.26862954, 0.26130258, 0.27577711],
+    )
     lpips_model = lpips.LPIPS(net='vgg').to(device)
+
     side_x = (args.width_height[0] // 64) * 64
     side_y = (args.width_height[1] // 64) * 64
-    cut_overview = _eval_scheduling_str(args.cut_overview)
-    cut_innercut = _eval_scheduling_str(args.cut_innercut)
-    cut_icgray_p = _eval_scheduling_str(args.cut_icgray_p)
-    cut_ic_pow = _eval_scheduling_str(args.cut_ic_pow)
-    use_secondary_model = _eval_scheduling_str(args.use_secondary_model)
+    cut_overview = eval(args.cut_overview)
+    cut_innercut = eval(args.cut_innercut)
+    cut_icgray_p = eval(args.cut_icgray_p)
 
     from .nn.perlin_noises import create_perlin_noise, regen_perlin
 
@@ -41,40 +42,24 @@ def do_run(args, models, device) -> 'DocumentArray':
     loss_values = []
 
     model_stats = []
-
-    _dp1, _, _output_fn = get_ipython_funcs()
-    _dp1.clear_output(wait=True)
-
-    if isinstance(args.text_prompts, str): args.text_prompts = [args.text_prompts]
-    
-    pmp = PromptParser(on_misspelled_token=args.on_misspelled_token)
-    txt_weights = [pmp.parse(prompt) for prompt in args.text_prompts]
-
-    for model_name, clip_model in clip_models.items():
-
-        # when using SLIP Base model the dimensions need to be hard coded to avoid AttributeError: 'VisionTransformer' object has no attribute 'input_resolution'
-        try:
-            input_resolution = clip_model.visual.input_resolution
-        except:
-            input_resolution = 224
-
-        schedules = [True] * 1000
-        if args.clip_models_schedules and model_name in args.clip_models_schedules:
-            schedules = _eval_scheduling_str(args.clip_models_schedules[model_name])
-
+    for clip_model in clip_models:
         model_stat = {
-            'clip_model': clip_model,
+            'clip_model': None,
             'target_embeds': [],
+            'make_cutouts': None,
             'weights': [],
-            'schedules': schedules,
-            'input_resolution': input_resolution,
         }
+        model_stat['clip_model'] = clip_model
 
-        for txt, weight in txt_weights:
-            txt = clip_model.encode_text(clip.tokenize(txt).to(device)).float()
+        if isinstance(args.text_prompts, str):
+            args.text_prompts = [args.text_prompts]
+
+        for prompt in args.text_prompts:
+            txt, weight = parse_prompt(prompt)
+            txt = clip_model.encode_text(clip.tokenize(prompt).to(device)).float()
 
             if args.fuzzy_prompt:
-                for _ in range(25):
+                for i in range(25):
                     model_stat['target_embeds'].append(
                         (txt + torch.randn(txt.shape).cuda() * args.rand_mag).clamp(
                             0, 1
@@ -85,12 +70,11 @@ def do_run(args, models, device) -> 'DocumentArray':
                 model_stat['target_embeds'].append(txt)
                 model_stat['weights'].append(weight)
 
-        sum_weight = abs(sum(model_stat['weights']))
-        if sum_weight < 1e-3:
-            raise ValueError(f'The sum of all weights in the prompts must *not* be 0 but sum({model_stat["weights"]})={sum_weight}')
         model_stat['target_embeds'] = torch.cat(model_stat['target_embeds'])
         model_stat['weights'] = torch.tensor(model_stat['weights'], device=device)
-        model_stat['weights'] /= sum_weight
+        if model_stat['weights'].sum().abs() < 1e-3:
+            raise RuntimeError('The weights must not sum to 0.')
+        model_stat['weights'] /= model_stat['weights'].sum().abs()
         model_stats.append(model_stat)
 
     init = None
@@ -100,29 +84,40 @@ def do_run(args, models, device) -> 'DocumentArray':
 
     if args.perlin_init:
         if args.perlin_mode == 'color':
-            init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
-            init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, False, side_y, side_x, device)
+            init = create_perlin_noise(
+                [1.5 ** -i * 0.5 for i in range(12)], 1, 1, False
+            )
+            init2 = create_perlin_noise(
+                [1.5 ** -i * 0.5 for i in range(8)], 4, 4, False
+            )
         elif args.perlin_mode == 'gray':
-            init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1, True, side_y, side_x, device)
-            init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
+            init = create_perlin_noise([1.5 ** -i * 0.5 for i in range(12)], 1, 1, True)
+            init2 = create_perlin_noise([1.5 ** -i * 0.5 for i in range(8)], 4, 4, True)
         else:
-            init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
-            init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
-        init = (TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device).unsqueeze(0).mul(2).sub(1))
+            init = create_perlin_noise(
+                [1.5 ** -i * 0.5 for i in range(12)], 1, 1, False
+            )
+            init2 = create_perlin_noise([1.5 ** -i * 0.5 for i in range(8)], 4, 4, True)
+        # init = TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device)
+        init = (
+            TF.to_tensor(init)
+            .add(TF.to_tensor(init2))
+            .div(2)
+            .to(device)
+            .unsqueeze(0)
+            .mul(2)
+            .sub(1)
+        )
         del init2
 
     cur_t = None
 
     def cond_fn(x, t, y=None):
-        t_int = int(t.item()) + 1  # errors on last step without +1, need to find source
-
-        num_step = 1000 - t_int
-
         with torch.enable_grad():
             x_is_NaN = False
             x = x.detach().requires_grad_()
             n = x.shape[0]
-            if use_secondary_model[num_step]:
+            if secondary_model:
                 alpha = torch.tensor(
                     diffusion.sqrt_alphas_cumprod[cur_t],
                     device=device,
@@ -146,19 +141,25 @@ def do_run(args, models, device) -> 'DocumentArray':
                 fac = diffusion.sqrt_one_minus_alphas_cumprod[cur_t]
                 x_in = out['pred_xstart'] * fac + x * (1 - fac)
                 x_in_grad = torch.zeros_like(x_in)
-
             for model_stat in model_stats:
-                for _ in range(args.cutn_batches):
-                    if not model_stat['schedules'][num_step]:
-                        continue
+                for i in range(args.cutn_batches):
+                    t_int = (
+                            int(t.item()) + 1
+                    )  # errors on last step without +1, need to find source
+                    # when using SLIP Base model the dimensions need to be hard coded to avoid AttributeError: 'VisionTransformer' object has no attribute 'input_resolution'
+                    try:
+                        input_resolution = model_stat[
+                            'clip_model'
+                        ].visual.input_resolution
+                    except:
+                        input_resolution = 224
 
                     cuts = MakeCutoutsDango(
-                        model_stat['input_resolution'],
-                        Overview=cut_overview[num_step],
-                        InnerCrop=cut_innercut[num_step],
-                        IC_Size_Pow=cut_ic_pow[num_step],
-                        IC_Grey_P=cut_icgray_p[num_step],
-                        skip_augs=args.skip_augs,
+                        input_resolution,
+                        Overview=cut_overview[1000 - t_int],
+                        InnerCrop=cut_innercut[1000 - t_int],
+                        IC_Size_Pow=args.cut_ic_pow,
+                        IC_Grey_P=cut_icgray_p[1000 - t_int],
                     )
                     clip_in = normalize(cuts(x_in.add(1).div(2)))
                     image_embeds = (
@@ -170,7 +171,7 @@ def do_run(args, models, device) -> 'DocumentArray':
                     )
                     dists = dists.view(
                         [
-                            cut_overview[num_step] + cut_innercut[num_step],
+                            cut_overview[1000 - t_int] + cut_innercut[1000 - t_int],
                             n,
                             -1,
                         ]
@@ -180,21 +181,21 @@ def do_run(args, models, device) -> 'DocumentArray':
                         losses.sum().item()
                     )  # log loss, probably shouldn't do per cutn_batch
                     x_in_grad += (
-                        torch.autograd.grad(
-                            losses.sum() * args.clip_guidance_scale, x_in
-                        )[0]
-                        / args.cutn_batches
+                            torch.autograd.grad(
+                                losses.sum() * args.clip_guidance_scale, x_in
+                            )[0]
+                            / args.cutn_batches
                     )
             tv_losses = tv_loss(x_in)
-            if use_secondary_model[num_step]:
+            if secondary_model:
                 range_losses = range_loss(out)
             else:
                 range_losses = range_loss(out['pred_xstart'])
             sat_losses = torch.abs(x_in - x_in.clamp(min=-1, max=1)).mean()
             loss = (
-                tv_losses.sum() * args.tv_scale
-                + range_losses.sum() * args.range_scale
-                + sat_losses.sum() * args.sat_scale
+                    tv_losses.sum() * args.tv_scale
+                    + range_losses.sum() * args.range_scale
+                    + sat_losses.sum() * args.sat_scale
             )
             if init is not None and args.init_scale:
                 init_losses = lpips_model(x_in, init)
@@ -208,7 +209,7 @@ def do_run(args, models, device) -> 'DocumentArray':
         if args.clamp_grad and not x_is_NaN:
             magnitude = grad.square().mean().sqrt()
             return (
-                grad * magnitude.clamp(max=args.clamp_max) / magnitude
+                    grad * magnitude.clamp(max=args.clamp_max) / magnitude
             )  # min=-0.02, min=-clamp_max,
         return grad
 
@@ -217,13 +218,10 @@ def do_run(args, models, device) -> 'DocumentArray':
     else:
         sample_fn = diffusion.plms_sample_loop_progressive
 
-#    logger.info('creating artwork...')
+    logger.info('creating artwork...')
 
-    image_display = _output_fn()
-    is_busy_evs = [threading.Event(), threading.Event()]
-
+    image_display = Output()
     da_batches = DocumentArray()
-    from rich.text import Text
 
     org_seed = args.seed
     for _nb in range(args.n_batches):
@@ -232,13 +230,9 @@ def do_run(args, models, device) -> 'DocumentArray':
         new_seed = org_seed + _nb
         _set_seed(new_seed)
         args.seed = new_seed
-        pgbar = '▰' * (_nb + 1) + '▱' * (args.n_batches - _nb - 1)
 
-        _dp1.display(
-            Text(f'n_batches={args.n_batches}: {pgbar}'),
-            print_args_table(vars(args), only_non_default=True, console_print=False),
-            image_display,
-        )
+        display.clear_output(wait=True)
+        display.display(print_args_table(vars(args), only_non_default=True, console_print=False), image_display)
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -248,7 +242,9 @@ def do_run(args, models, device) -> 'DocumentArray':
         cur_t = diffusion.num_timesteps - skip_steps - 1
 
         if args.perlin_init:
-            init = regen_perlin(args.perlin_mode, side_y, side_x, device, args.batch_size)
+            init = regen_perlin(
+                args.perlin_mode, args.side_y, side_x, device, args.batch_size
+            )
 
         if args.diffusion_sampling_mode == 'ddim':
             samples = sample_fn(
@@ -262,10 +258,6 @@ def do_run(args, models, device) -> 'DocumentArray':
                 init_image=init,
                 randomize_class=args.randomize_class,
                 eta=args.eta,
-                transformation_fn=lambda x: symmetry_transformation_fn(
-                    x, args.use_horizontal_symmetry, args.use_vertical_symmetry
-                ),
-                transformation_percent=args.transformation_percent,
             )
         else:
             samples = sample_fn(
@@ -291,8 +283,8 @@ def do_run(args, models, device) -> 'DocumentArray':
                         c = Document(tags={'cur_t': cur_t})
                         c.load_pil_image_to_datauri(image)
                         d.chunks.append(c)
-                        _dp1.clear_output(wait=True)
-                        _dp1.display(image)
+                        display.clear_output(wait=True)
+                        display.display(image)
                         d.chunks.plot_image_sprites(
                             f'{args.name_docarray}-progress-{_nb}.png',
                             skip_empty=True,
@@ -301,31 +293,29 @@ def do_run(args, models, device) -> 'DocumentArray':
                         )
 
                     # root doc always update with the latest progress
-                    #d.uri = c.uri
-                    #_start_persist(
-                    #    threads,
-                    #    da_batches,
-                    #    args.name_docarray,
-                    #    is_busy_evs,
-                    #    force=cur_t == -1,
-                    #)
+                    d.uri = c.uri
+                    _start_persist(threads, da_batches, args.name_docarray)
 
         for t in threads:
             t.join()
-        _dp1.clear_output(wait=True)
-
-    #logger.info(f'done! {args.name_docarray}')
+    display.clear_output(wait=True)
+    logger.info(f'done! {args.name_docarray}')
 
     return da_batches
 
-#def _start_persist(threads, da_batches, name_docarray, is_busy_evs, force):
-#    for fn, idle_ev in zip((_silent_save, _silent_push), is_busy_evs):
-#        t = Thread(
-#            target=fn,
-#            args=(da_batches, name_docarray, idle_ev, force),
-#        )
-#        threads.append(t)
-#        t.start()
+
+def _start_persist(threads, da_batches, name_docarray):
+    for fn in (_silent_save, _silent_push):
+        t = Thread(
+            target=fn,
+            args=(
+                da_batches,
+                name_docarray,
+            ),
+        )
+        threads.append(t)
+        t.start()
+
 
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
@@ -334,52 +324,16 @@ def _set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
 
-#def _silent_save(
-#    da_batches: DocumentArray,
-#    name: str,
-#    is_busy_event: threading.Event,
-#    force: bool = False,
-#) -> None:
-#    if is_busy_event.is_set() and not force:
-#        logger.debug(f'another save is running, skipping')
-#        return
-#    is_busy_event.set()
-#    try:
-#        da_batches.save_binary(f'{name}.protobuf.lz4')
-#        logger.debug(f'local backup to {name}.protobuf.lz4')
-#    except Exception as ex:
-#        logger.debug(f'local backup failed: {ex}')
-#    is_busy_event.clear()
-#
-#
-#def _silent_push(
-#    da_batches: DocumentArray,
-#    name: str,
-#    is_busy_event: threading.Event,
-#    force: bool = False,
-#) -> None:
-#    if 'DISCOART_OPTOUT_CLOUD_BACKUP' in os.environ:
-#        return
-#    if is_busy_event.is_set() and not force:
-#        logger.debug(f'another cloud backup is running, skipping')
-#        return
-#    is_busy_event.set()
-#    try:
-#        da_batches.push(name)
-#        logger.debug(f'cloud backup to {name}')
-#    except Exception as ex:
-#        logger.debug(f'cloud backup failed: {ex}')
-#    is_busy_event.clear()
+
+def _silent_save(da_batches: DocumentArray, name: str) -> None:
+    try:
+        da_batches.save_binary(f'{name}.protobuf.lz4')
+    except Exception as ex:
+        logger.debug(f'local backup failed: {ex}')
 
 
-def _eval_scheduling_str(val) -> List[float]:
-    if isinstance(val, str):
-        r = eval(val)
-    elif isinstance(val, (int, float, bool)):
-        r = [val] * 1000
-    else:
-        raise ValueError(f'unsupported scheduling type: {val}: {type(val)}')
-
-    if len(r) != 1000:
-        raise ValueError(f'invalid scheduling string: {val}')
-    return r
+def _silent_push(da_batches: DocumentArray, name: str) -> None:
+    try:
+        da_batches.push(name)
+    except Exception as ex:
+        logger.debug(f'push failed: {ex}')
