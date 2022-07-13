@@ -19,8 +19,7 @@ def _get_logger():
     ch = logging.StreamHandler()
     ch.setLevel(_log_level)
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     return logger
@@ -31,8 +30,7 @@ logger = _get_logger()
 if not os.path.exists(cache_dir):
     logger.info(
         f'looks like you are running {__package__} for the first time, the first time will take longer time as it will download models. '
-        f'You wont see this message on the second run.'
-    )
+        f'You wont see this message on the second run.')
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
 logger.debug(f'`.cache` dir is set to: {cache_dir}')
@@ -41,16 +39,14 @@ check_model_SHA = False
 
 
 def _gitclone(url, dest):
-    res = subprocess.run(
-        ['git', 'clone', '--depth', '1', url, dest], stdout=subprocess.PIPE
-    ).stdout.decode('utf-8')
+    res = subprocess.run(['git', 'clone', '--depth', '1', url, dest],
+                         stdout=subprocess.PIPE).stdout.decode('utf-8')
     logger.debug(f'cloned {url} to {dest}: {res}')
 
 
 def _pip_install(url):
-    res = subprocess.run(['pip', 'install', url], stdout=subprocess.PIPE).stdout.decode(
-        'utf-8'
-    )
+    res = subprocess.run(['pip', 'install', url],
+                         stdout=subprocess.PIPE).stdout.decode('utf-8')
     logger.debug(f'pip installed {url}: {res}')
 
 
@@ -65,29 +61,29 @@ def _clone_dependencies():
         import clip
     except ModuleNotFoundError:
         _pip_install('git+https://github.com/openai/CLIP.git')
-    _clone_repo_install(
-        'https://github.com/crowsonkb/guided-diffusion', f'{cache_dir}/guided_diffusion'
-    )
-    _clone_repo_install(
-        'https://github.com/assafshocher/ResizeRight', f'{cache_dir}/resize_right'
-    )
+    _clone_repo_install('https://github.com/crowsonkb/guided-diffusion',
+                        f'{cache_dir}/guided_diffusion')
+    _clone_repo_install('https://github.com/assafshocher/ResizeRight',
+                        f'{cache_dir}/resize_right')
 
 
 def _wget(url, outputdir):
-    res = subprocess.run(
-        ['wget', url, '-q', '-P', f'{outputdir}'], stdout=subprocess.PIPE
-    ).stdout.decode('utf-8')
+    res = subprocess.run(['wget', url, '-q', '-P', f'{outputdir}'],
+                         stdout=subprocess.PIPE).stdout.decode('utf-8')
     logger.debug(res)
 
 
-def load_clip_models(device, enabled: List[str], clip_models: Dict[str, Any] = {}):
+def load_clip_models(device,
+                     enabled: List[str],
+                     clip_models: Dict[str, Any] = {}):
 
     import clip
 
     # load enabled models
     for k in enabled:
         if k not in clip_models:
-            clip_models[k] = clip.load(k, jit=False)[0].eval().requires_grad_(False).to(device)
+            clip_models[k] = clip.load(
+                k, jit=False)[0].eval().requires_grad_(False).to(device)
 
     # disable not enabled models to save memory
     for k in clip_models:
@@ -98,10 +94,10 @@ def load_clip_models(device, enabled: List[str], clip_models: Dict[str, Any] = {
 
 
 def load_all_models(
-    diffusion_model,
-    use_secondary_model,
-    fallback=False,
-    device=torch.device('cuda:0'),
+        diffusion_model,
+        use_secondary_model,
+        fallback=False,
+        device=torch.device('cuda:0'),
 ):
     _clone_dependencies()
     model_256_downloaded = False
@@ -111,8 +107,7 @@ def load_all_models(
     model_256_SHA = '983e3de6f95c88c81b2ca7ebb2c217933be1973b1ff058776b970f901584613a'
     model_512_SHA = '9c111ab89e214862b76e1fa6a1b3f1d329b1a88281885943d2cdbe357ad57648'
     model_secondary_SHA = (
-        '983e3de6f95c88c81b2ca7ebb2c217933be1973b1ff058776b970f901584613a'
-    )
+        '983e3de6f95c88c81b2ca7ebb2c217933be1973b1ff058776b970f901584613a')
 
     model_256_link = 'https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt'
     model_512_link = 'https://v-diffusion.s3.us-west-2.amazonaws.com/512x512_diffusion_uncond_finetune_008100.pt'
@@ -154,11 +149,8 @@ def load_all_models(
                 else:
                     logger.debug('First URL Failed using FallBack')
                     load_all_models(diffusion_model, use_secondary_model, True)
-        elif (
-            os.path.exists(model_256_path)
-            and not check_model_SHA
-            or model_256_downloaded == True
-        ):
+        elif (os.path.exists(model_256_path) and not check_model_SHA
+              or model_256_downloaded == True):
             logger.debug(
                 '256 Model already downloaded, check check_model_SHA if the file is corrupt'
             )
@@ -190,11 +182,8 @@ def load_all_models(
                 else:
                     logger.debug('First URL Failed using FallBack')
                     load_all_models(diffusion_model, use_secondary_model, True)
-        elif (
-            os.path.exists(model_512_path)
-            and not check_model_SHA
-            or model_512_downloaded == True
-        ):
+        elif (os.path.exists(model_512_path) and not check_model_SHA
+              or model_512_downloaded == True):
             logger.debug(
                 '512 Model already downloaded, check check_model_SHA if the file is corrupt'
             )
@@ -212,18 +201,16 @@ def load_all_models(
                 logger.debug('Secondary Model SHA matches')
                 model_secondary_downloaded = True
             else:
-                logger.debug("Secondary Model SHA doesn't match, redownloading...")
+                logger.debug(
+                    "Secondary Model SHA doesn't match, redownloading...")
                 _wget(model_secondary_link, cache_dir)
                 if os.path.exists(model_secondary_path):
                     model_secondary_downloaded = True
                 else:
                     logger.debug('First URL Failed using FallBack')
                     load_all_models(diffusion_model, use_secondary_model, True)
-        elif (
-            os.path.exists(model_secondary_path)
-            and not check_model_SHA
-            or model_secondary_downloaded == True
-        ):
+        elif (os.path.exists(model_secondary_path) and not check_model_SHA
+              or model_secondary_downloaded == True):
             logger.debug(
                 'Secondary Model already downloaded, check check_model_SHA if the file is corrupt'
             )
@@ -236,49 +223,48 @@ def load_all_models(
                 load_all_models(diffusion_model, use_secondary_model, True)
 
     from guided_diffusion.script_util import (
-        model_and_diffusion_defaults,
-    )
+        model_and_diffusion_defaults, )
 
     model_config = model_and_diffusion_defaults()
 
     if diffusion_model == '512x512_diffusion_uncond_finetune_008100':
-        model_config.update(
-            {
-                'attention_resolutions': '32, 16, 8',
-                'class_cond': False,
-                'diffusion_steps': 1000,  # No need to edit this, it is taken care of later.
-                'rescale_timesteps': True,
-                'timestep_respacing': 250,  # No need to edit this, it is taken care of later.
-                'image_size': 512,
-                'learn_sigma': True,
-                'noise_schedule': 'linear',
-                'num_channels': 256,
-                'num_head_channels': 64,
-                'num_res_blocks': 2,
-                'resblock_updown': True,
-                'use_fp16': device != 'cpu',
-                'use_scale_shift_norm': True,
-            }
-        )
+        model_config.update({
+            'attention_resolutions': '32, 16, 8',
+            'class_cond': False,
+            'diffusion_steps':
+            1000,  # No need to edit this, it is taken care of later.
+            'rescale_timesteps': True,
+            'timestep_respacing':
+            250,  # No need to edit this, it is taken care of later.
+            'image_size': 512,
+            'learn_sigma': True,
+            'noise_schedule': 'linear',
+            'num_channels': 256,
+            'num_head_channels': 64,
+            'num_res_blocks': 2,
+            'resblock_updown': True,
+            'use_fp16': device != 'cpu',
+            'use_scale_shift_norm': True,
+        })
     elif diffusion_model == '256x256_diffusion_uncond':
-        model_config.update(
-            {
-                'attention_resolutions': '32, 16, 8',
-                'class_cond': False,
-                'diffusion_steps': 1000,  # No need to edit this, it is taken care of later.
-                'rescale_timesteps': True,
-                'timestep_respacing': 250,  # No need to edit this, it is taken care of later.
-                'image_size': 256,
-                'learn_sigma': True,
-                'noise_schedule': 'linear',
-                'num_channels': 256,
-                'num_head_channels': 64,
-                'num_res_blocks': 2,
-                'resblock_updown': True,
-                'use_fp16': device != 'cpu',
-                'use_scale_shift_norm': True,
-            }
-        )
+        model_config.update({
+            'attention_resolutions': '32, 16, 8',
+            'class_cond': False,
+            'diffusion_steps':
+            1000,  # No need to edit this, it is taken care of later.
+            'rescale_timesteps': True,
+            'timestep_respacing':
+            250,  # No need to edit this, it is taken care of later.
+            'image_size': 256,
+            'learn_sigma': True,
+            'noise_schedule': 'linear',
+            'num_channels': 256,
+            'num_head_channels': 64,
+            'num_res_blocks': 2,
+            'resblock_updown': True,
+            'use_fp16': device != 'cpu',
+            'use_scale_shift_norm': True,
+        })
 
     secondary_model = None
     if use_secondary_model:
@@ -286,10 +272,8 @@ def load_all_models(
 
         secondary_model = SecondaryDiffusionImageNet2()
         secondary_model.load_state_dict(
-            torch.load(
-                f'{cache_dir}/secondary_model_imagenet_2.pth', map_location='cpu'
-            )
-        )
+            torch.load(f'{cache_dir}/secondary_model_imagenet_2.pth',
+                       map_location='cpu'))
         secondary_model.eval().requires_grad_(False).to(device)
 
     return model_config, secondary_model
@@ -297,22 +281,18 @@ def load_all_models(
 
 def load_diffusion_model(model_config, diffusion_model, steps, device):
     from guided_diffusion.script_util import (
-        create_model_and_diffusion,
-    )
+        create_model_and_diffusion, )
 
     timestep_respacing = f'ddim{steps}'
     diffusion_steps = (1000 // steps) * steps if steps < 1000 else steps
-    model_config.update(
-        {
-            'timestep_respacing': timestep_respacing,
-            'diffusion_steps': diffusion_steps,
-        }
-    )
+    model_config.update({
+        'timestep_respacing': timestep_respacing,
+        'diffusion_steps': diffusion_steps,
+    })
 
     model, diffusion = create_model_and_diffusion(**model_config)
     model.load_state_dict(
-        torch.load(f'{cache_dir}/{diffusion_model}.pt', map_location='cpu')
-    )
+        torch.load(f'{cache_dir}/{diffusion_model}.pt', map_location='cpu'))
     model.requires_grad_(False).eval().to(device)
     for name, param in model.named_parameters():
         if 'qkv' in name or 'norm' in name or 'proj' in name:
@@ -329,5 +309,5 @@ def parse_prompt(prompt):
         vals = [vals[0] + ':' + vals[1], *vals[2:]]
     else:
         vals = prompt.rsplit(':', 1)
-    vals = vals + ['', '1'][len(vals) :]
+    vals = vals + ['', '1'][len(vals):]
     return vals[0], float(vals[1])

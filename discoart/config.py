@@ -13,9 +13,7 @@ with open(f'{__resources_path__}/default.yml') as ymlfile:
     default_args = yaml.load(ymlfile, Loader=Loader)
 
 
-def load_config(
-    user_config: Dict,
-) -> Dict:
+def load_config(user_config: Dict, ) -> Dict:
     cfg = copy.deepcopy(default_args)
 
     if user_config:
@@ -27,29 +25,28 @@ def load_config(
 
     for k, v in cfg.items():
         if k in (
-            'batch_size',
-            'display_rate',
-            'seed',
-            'skip_steps',
-            'steps',
-            'n_batches',
-            'cutn_batches',
+                'batch_size',
+                'display_rate',
+                'seed',
+                'skip_steps',
+                'steps',
+                'n_batches',
+                'cutn_batches',
         ) and isinstance(v, float):
             cfg[k] = int(v)
         if k == 'width_height':
             cfg[k] = [int(vv) for vv in v]
 
-    cfg.update(
-        **{
-            'seed': cfg['seed'] or random.randint(0, 2**32),
-        }
-    )
+    cfg.update(**{
+        'seed': cfg['seed'] or random.randint(0, 2**32),
+    })
 
     if cfg['batch_name']:
         da_name = f'{__package__}-{cfg["batch_name"]}-{cfg["seed"]}'
     else:
         da_name = f'{__package__}-{cfg["seed"]}'
-        warnings.warn('you did not set `batch_name`, set it to have unique session ID')
+        warnings.warn(
+            'you did not set `batch_name`, set it to have unique session ID')
 
     cfg.update(**{'name_docarray': da_name})
 
@@ -87,9 +84,10 @@ def save_config_svg(
     )
 
 
-def print_args_table(
-    cfg, console=None, only_non_default: bool = False, console_print: bool = True
-):
+def print_args_table(cfg,
+                     console=None,
+                     only_non_default: bool = False,
+                     console_print: bool = True):
     from rich.table import Table
     from rich import box
     from rich.console import Console
