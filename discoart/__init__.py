@@ -1,33 +1,41 @@
 __version__ = "0.0.23"
 __all__ = ["create"]
 
-import os,gc,copy,random,warnings
+import os
+import gc
+import copy
+import random
+import warnings
+import clip
+import torch
+import yaml
+import lpips
+import numpy as np
+import torchvision.transforms as T
+import hashlib
+import logging
+import subprocess
+import math
+import torchvision.transforms.functional as TF
+
 from docarray import Document
 from types import SimpleNamespace
-from typing import overload,List,Optional,Dict
-import torch,yaml
+from typing import overload, List, Optional, Dict
 from yaml import Loader
-import gc,random,clip,lpips,numpy as np,torch,yaml,torchvision.transforms as T,torchvision.transforms.functional as TF
 from PIL import ImageOps
-from yaml import Loader
 from IPython import display
-from docarray import Document
 from ipywidgets import Output
 from torch.nn import functional as F
-from torchvision import transforms as T
-from torchvision.transforms import functional as TF
-import math,torch
 from resize_right import resize
 from torch import nn
-import hashlib,logging,os,subprocess,torch
 from os.path import expanduser
 from pathlib import Path
-from typing import Dict,Any,List
 
 device = torch.device('cuda:0')
 __resources_path__ = os.path.dirname(__file__)
 _clip_models_cache = {}
 cache_dir = f'{expanduser("~")}/.cache/{__package__}'
+
 
 def _get_logger():
     logger = logging.getLogger(__package__)
@@ -35,47 +43,64 @@ def _get_logger():
     logger.setLevel(_log_level)
     ch = logging.StreamHandler()
     ch.setLevel(_log_level)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     return logger
 
+
 logger = _get_logger()
 
 if not os.path.exists(cache_dir):
-    logger.info(f'looks like you are running {__package__} for the first time, the first time will take longer time as it will download models. ')
+    logger.info(f'Downloading models....')
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
 logger.debug(f'`.cache` dir is set to: {cache_dir}')
 
 check_model_SHA = False
 
+
 def _pip_install(url):
-    res = subprocess.run(['pip', 'install', url], stdout=subprocess.PIPE).stdout.decode('utf-8')
+    res = subprocess.run(['pip', 'install', url],
+                         stdout=subprocess.PIPE).stdout.decode('utf-8')
     logger.debug(f'pip installed {url}: {res}')
+
 
 def _clone_dependencies():
     _pip_install('git+https://github.com/openai/CLIP.git')
     _pip_install('git+https://github.com/crowsonkb/guided-diffusion')
     _pip_install('resize-right')
 
+
 def _wget(url, outputdir):
-    res = subprocess.run(['wget', url, '-q', '-P', f'{outputdir}'], stdout=subprocess.PIPE).stdout.decode('utf-8')
+    res = subprocess.run(['wget', url, '-q', '-P', f'{outputdir}'],
+                         stdout=subprocess.PIPE).stdout.decode('utf-8')
     logger.debug(res)
 
-def load_clip_models(device, enabled: List[str], clip_models: Dict[str, Any] = {}):
+
+def load_clip_models(device,
+                     enabled: List[str],
+                     clip_models: Dict[str, Any] = {}):
     import clip
     # load enabled models
     for k in enabled:
         if k not in clip_models:
-            clip_models[k] = clip.load(k, jit=False)[0].eval().requires_grad_(False).to(device)
+            clip_models[k] = clip.load(
+                k, jit=False)[0].eval().requires_grad_(False).to(device)
     # disable not enabled models to save memory
     for k in clip_models:
         if k not in enabled:
             clip_models.pop(k)
     return list(clip_models.values())
 
-def load_all_models(diffusion_model, use_secondary_model, fallback=False, device=torch.device('cuda:0'),):
+
+def load_all_models(
+        diffusion_model,
+        use_secondary_model,
+        fallback=False,
+        device=torch.device('cuda:0'),
+):
 
     _clone_dependencies()
     model_512_downloaded = False
@@ -97,73 +122,94 @@ def load_all_models(diffusion_model, use_secondary_model, fallback=False, device
                 if os.path.exists(model_512_path): model_512_downloaded = True
                 else:
                     logger.debug('First URL Failed using FallBack')
-                    load_all_models(diffusion_model, use_secondary_model, False)
+                    load_all_models(diffusion_model, use_secondary_model,
+                                    False)
             else:
                 logger.debug("512 Model SHA doesn't match, redownloading...")
                 _wget(model_512_link, cache_dir)
                 if os.path.exists(model_512_path): model_512_downloaded = True
                 else:
                     logger.debug('First URL Failed using FallBack')
-                    load_all_models(diffusion_model, use_secondary_model, False)
-        elif (os.path.exists(model_512_path)and not check_model_SHA or model_512_downloaded == True):
-            logger.debug('512 Model already downloaded, check check_model_SHA if the file is corrupt')
+                    load_all_models(diffusion_model, use_secondary_model,
+                                    False)
+        elif (os.path.exists(model_512_path) and not check_model_SHA
+              or model_512_downloaded == True):
+            logger.debug(
+                '512 Model already downloaded, check check_model_SHA if the file is corrupt'
+            )
         else:
             _wget(model_512_link, cache_dir)
             model_512_downloaded = True
 
-    from guided_diffusion.script_util import (model_and_diffusion_defaults,)
+    from guided_diffusion.script_util import (
+        model_and_diffusion_defaults, )
 
     model_config = model_and_diffusion_defaults()
 
     if diffusion_model == '512x512_diffusion_uncond_finetune_008100':
-        model_config.update({   
-                'attention_resolutions': '32, 16, 8',
-                'class_cond': False,
-                'diffusion_steps': 1000,  # No need to edit this, it is taken care of later.
-                'rescale_timesteps': True,
-                'timestep_respacing': 250,  # No need to edit this, it is taken care of later.
-                'image_size': 512,
-                'learn_sigma': True,
-                'noise_schedule': 'linear',
-                'num_channels': 256,
-                'num_head_channels': 64,
-                'num_res_blocks': 2,
-                'resblock_updown': True,
-                'use_fp16': device != 'cpu',
-                'use_scale_shift_norm': True,})
+        model_config.update({
+            'attention_resolutions': '32, 16, 8',
+            'class_cond': False,
+            'diffusion_steps':
+            1000,  # No need to edit this, it is taken care of later.
+            'rescale_timesteps': True,
+            'timestep_respacing':
+            250,  # No need to edit this, it is taken care of later.
+            'image_size': 512,
+            'learn_sigma': True,
+            'noise_schedule': 'linear',
+            'num_channels': 256,
+            'num_head_channels': 64,
+            'num_res_blocks': 2,
+            'resblock_updown': True,
+            'use_fp16': device != 'cpu',
+            'use_scale_shift_norm': True,
+        })
 
     elif diffusion_model == '256x256_diffusion_uncond':
-        model_config.update({   
-                'attention_resolutions': '32, 16, 8',
-                'class_cond': False,
-                'diffusion_steps': 1000,  # No need to edit this, it is taken care of later.
-                'rescale_timesteps': True,
-                'timestep_respacing': 250,  # No need to edit this, it is taken care of later.
-                'image_size': 256,
-                'learn_sigma': True,
-                'noise_schedule': 'linear',
-                'num_channels': 256,
-                'num_head_channels': 64,
-                'num_res_blocks': 2,
-                'resblock_updown': True,
-                'use_fp16': device != 'cpu',
-                'use_scale_shift_norm': True,})
+        model_config.update({
+            'attention_resolutions': '32, 16, 8',
+            'class_cond': False,
+            'diffusion_steps':
+            1000,  # No need to edit this, it is taken care of later.
+            'rescale_timesteps': True,
+            'timestep_respacing':
+            250,  # No need to edit this, it is taken care of later.
+            'image_size': 256,
+            'learn_sigma': True,
+            'noise_schedule': 'linear',
+            'num_channels': 256,
+            'num_head_channels': 64,
+            'num_res_blocks': 2,
+            'resblock_updown': True,
+            'use_fp16': device != 'cpu',
+            'use_scale_shift_norm': True,
+        })
 
     secondary_model = None
     return model_config, secondary_model
 
-model_config, secondary_model = load_all_models("512x512_diffusion_uncond_finetune_008100",use_secondary_model=False,device=device)
+
+model_config, secondary_model = load_all_models(
+    "512x512_diffusion_uncond_finetune_008100",
+    use_secondary_model=False,
+    device=device)
 
 
 def load_diffusion_model(model_config, diffusion_model, steps, device):
-    from guided_diffusion.script_util import (create_model_and_diffusion,)
+    from guided_diffusion.script_util import (
+        create_model_and_diffusion, )
 
     timestep_respacing = f'ddim{steps}'
     diffusion_steps = (1000 // steps) * steps if steps < 1000 else steps
-    model_config.update({'timestep_respacing': timestep_respacing,'diffusion_steps': diffusion_steps,})
+    model_config.update({
+        'timestep_respacing': timestep_respacing,
+        'diffusion_steps': diffusion_steps,
+    })
 
     model, diffusion = create_model_and_diffusion(**model_config)
-    model.load_state_dict(torch.load(f'{cache_dir}/{diffusion_model}.pt', map_location='cpu'))
+    model.load_state_dict(
+        torch.load(f'{cache_dir}/{diffusion_model}.pt', map_location='cpu'))
     model.requires_grad_(False).eval().to(device)
     for name, param in model.named_parameters():
         if 'qkv' in name or 'norm' in name or 'proj' in name:
@@ -172,19 +218,21 @@ def load_diffusion_model(model_config, diffusion_model, steps, device):
         model.convert_to_fp16()
     return model, diffusion
 
+
 def parse_prompt(prompt):
     if prompt.startswith('http://') or prompt.startswith('https://'):
         vals = prompt.rsplit(':', 2)
         vals = [vals[0] + ':' + vals[1], *vals[2:]]
     else:
         vals = prompt.rsplit(':', 1)
-    vals = vals + ['', '1'][len(vals) :]
+    vals = vals + ['', '1'][len(vals):]
     return vals[0], float(vals[1])
+
 
 @overload
 def create(
     text_prompts: Optional[List[str]] = [
-        "A beautiful painting of a singular lighthouse, shining its light across a tumultuous sea of blood by greg rutkowski and thomas kinkade, Trending on artstation.",
+        "A beautiful painting of a singular lighthouse, Trending on artstation.",
         "yellow color scheme",
     ],
     #init_image: Optional[str] = None,
@@ -198,7 +246,8 @@ def create(
     range_scale: Optional[int] = 150,
     sat_scale: Optional[int] = 0,
     cutn_batches: Optional[int] = 4,
-    diffusion_model: Optional[str] = "512x512_diffusion_uncond_finetune_008100",
+    diffusion_model: Optional[
+        str] = "512x512_diffusion_uncond_finetune_008100",
     diffusion_sampling_mode: Optional[str] = "ddim",
     perlin_init: Optional[bool] = False,
     perlin_mode: Optional[str] = "mixed",
@@ -215,16 +264,21 @@ def create(
     n_batches: Optional[int] = 4,
     batch_size: Optional[int] = 1,
     batch_name: Optional[str] = "",
-    clip_models: Optional[list] = ["ViTB32", "ViTB16", "RN50"],):...
- 
+    clip_models: Optional[list] = ["ViTB32", "ViTB16", "RN50"],
+):
+    ...
+
 
 @overload
-def create(init_document: "Document"):...
+def create(init_document: "Document"):
+    ...
+
 
 with open(f"{__resources_path__}/default.yml") as ymlfile:
     default_args = yaml.load(ymlfile, Loader=Loader)
 
-def load_config(user_config: Dict,) -> Dict:
+
+def load_config(user_config: Dict, ) -> Dict:
     cfg = copy.deepcopy(default_args)
     if user_config:
         cfg.update(**user_config)
@@ -232,11 +286,21 @@ def load_config(user_config: Dict,) -> Dict:
         if k not in cfg: warnings.warn(f"unknown argument {k}, ignored")
 
     for k, v in cfg.items():
-        if k in ("batch_size","display_rate","seed","skip_steps","steps","n_batches","cutn_batches",) and isinstance(v, float):
+        if k in (
+                "batch_size",
+                "display_rate",
+                "seed",
+                "skip_steps",
+                "steps",
+                "n_batches",
+                "cutn_batches",
+        ) and isinstance(v, float):
             cfg[k] = int(v)
         if k == "width_height": cfg[k] = [int(vv) for vv in v]
 
-    cfg.update(**{"seed": cfg["seed"] or random.randint(0, 2**32),})
+    cfg.update(**{
+        "seed": cfg["seed"] or random.randint(0, 2**32),
+    })
 
     if cfg["batch_name"]:
         da_name = f'{__package__}-{cfg["batch_name"]}-{cfg["seed"]}'
@@ -247,23 +311,32 @@ def load_config(user_config: Dict,) -> Dict:
 
     return cfg
 
+
 def create(**kwargs):
-    from .runner import do_run
+#    from .runner import do_run
     _args = load_config(user_config=kwargs)
     _args = SimpleNamespace(**_args)
-    model, diffusion = load_diffusion_model(model_config, _args.diffusion_model, steps=_args.steps, device=device)
-    clip_models = load_clip_models(device, enabled=_args.clip_models, clip_models=_clip_models_cache)
+    model, diffusion = load_diffusion_model(model_config,
+                                            _args.diffusion_model,
+                                            steps=_args.steps,
+                                            device=device)
+    clip_models = load_clip_models(device,
+                                   enabled=_args.clip_models,
+                                   clip_models=_clip_models_cache)
     gc.collect()
     torch.cuda.empty_cache()
     try:
-        return do_run(_args, (model, diffusion, clip_models, secondary_model), device)
+        return do_run(_args, (model, diffusion, clip_models, secondary_model),
+                      device)
     except KeyboardInterrupt:
         pass
+
 
 def spherical_dist_loss(x, y):
     x = F.normalize(x, dim=-1)
     y = F.normalize(y, dim=-1)
     return (x - y).norm(dim=-1).div(2).arcsin().pow(2).mul(2)
+
 
 def tv_loss(input):
     """L2 total variation loss, as in Mahendran et al."""
@@ -272,19 +345,24 @@ def tv_loss(input):
     y_diff = input[..., 1:, :-1] - input[..., :-1, :-1]
     return (x_diff**2 + y_diff**2).mean([1, 2, 3])
 
+
 def range_loss(input):
     return (input - input.clamp(-1, 1)).pow(2).mean([1, 2, 3])
-from PIL import ImageOps
+
 
 skip_augs = False  # @param{type: 'boolean'}
 
+
 def sinc(x):
-    return torch.where(x != 0, torch.sin(math.pi * x) / (math.pi * x), x.new_ones([]))
+    return torch.where(x != 0,
+                       torch.sin(math.pi * x) / (math.pi * x), x.new_ones([]))
+
 
 def lanczos(x, a):
     cond = torch.logical_and(-a < x, x < a)
     out = torch.where(cond, sinc(x) * sinc(x / a), x.new_zeros([]))
     return out / out.sum()
+
 
 def ramp(ratio, width):
     n = math.ceil(width / ratio + 1)
@@ -297,16 +375,22 @@ def ramp(ratio, width):
 
 
 class MakeCutouts(nn.Module):
+
     def __init__(self, cut_size, cutn, skip_augs=False):
         super().__init__()
         self.cut_size = cut_size
         self.cutn = cutn
         self.skip_augs = skip_augs
         self.augs = T.Compose([
-                T.RandomHorizontalFlip(p=0.5), T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
-                T.RandomAffine(degrees=15, translate=(0.1, 0.1)), T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
-                T.RandomPerspective(distortion_scale=0.4, p=0.7), T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
-                T.RandomGrayscale(p=0.15), T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),])
+            T.RandomHorizontalFlip(p=0.5),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+            T.RandomAffine(degrees=15, translate=(0.1, 0.1)),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+            T.RandomPerspective(distortion_scale=0.4, p=0.7),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+            T.RandomGrayscale(p=0.15),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+        ])
 
     def forward(self, input):
         input = T.Pad(input.shape[2] // 4, fill=0)(input)
@@ -318,10 +402,13 @@ class MakeCutouts(nn.Module):
             if ch > self.cutn - self.cutn // 4:
                 cutout = input.clone()
             else:
-                size = int(max_size* torch.zeros(1,).normal_(mean=0.8, std=0.3).clip(float(self.cut_size / max_size), 1.0))
+                size = int(max_size *
+                           torch.zeros(1, ).normal_(mean=0.8, std=0.3).clip(
+                               float(self.cut_size / max_size), 1.0))
                 offsetx = torch.randint(0, abs(sideX - size + 1), ())
                 offsety = torch.randint(0, abs(sideY - size + 1), ())
-                cutout = input[:, :, offsety: offsety + size, offsetx: offsetx + size]
+                cutout = input[:, :, offsety:offsety + size,
+                               offsetx:offsetx + size]
 
             if not self.skip_augs:
                 cutout = self.augs(cutout)
@@ -333,18 +420,35 @@ class MakeCutouts(nn.Module):
 
 
 class MakeCutoutsDango(nn.Module):
-    def __init__(self, cut_size, Overview=4, InnerCrop=0, IC_Size_Pow=0.5, IC_Grey_P=0.2):
+
+    def __init__(self,
+                 cut_size,
+                 Overview=4,
+                 InnerCrop=0,
+                 IC_Size_Pow=0.5,
+                 IC_Grey_P=0.2):
         super().__init__()
         self.cut_size = cut_size
         self.Overview = Overview
         self.InnerCrop = InnerCrop
         self.IC_Size_Pow = IC_Size_Pow
         self.IC_Grey_P = IC_Grey_P
-        self.augs = T.Compose([   
-                T.RandomHorizontalFlip(p=0.5),T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
-                T.RandomAffine(degrees=10,translate=(0.05, 0.05),interpolation=T.InterpolationMode.BILINEAR,),
-                T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),T.RandomGrayscale(p=0.1),
-                T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),])
+        self.augs = T.Compose([
+            T.RandomHorizontalFlip(p=0.5),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+            T.RandomAffine(
+                degrees=10,
+                translate=(0.05, 0.05),
+                interpolation=T.InterpolationMode.BILINEAR,
+            ),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+            T.RandomGrayscale(p=0.1),
+            T.Lambda(lambda x: x + torch.randn_like(x) * 0.01),
+            T.ColorJitter(brightness=0.1,
+                          contrast=0.1,
+                          saturation=0.1,
+                          hue=0.1),
+        ])
 
     def forward(self, input):
         cutouts = []
@@ -353,7 +457,16 @@ class MakeCutoutsDango(nn.Module):
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
         output_shape = [1, 3, self.cut_size, self.cut_size]
-        pad_input = F.pad(input,((sideY - max_size) // 2,(sideY - max_size) // 2,(sideX - max_size) // 2,(sideX - max_size) // 2,),**padargs,)
+        pad_input = F.pad(
+            input,
+            (
+                (sideY - max_size) // 2,
+                (sideY - max_size) // 2,
+                (sideX - max_size) // 2,
+                (sideX - max_size) // 2,
+            ),
+            **padargs,
+        )
         cutout = resize(pad_input, out_shape=output_shape)
 
         if self.Overview > 0:
@@ -369,10 +482,13 @@ class MakeCutoutsDango(nn.Module):
 
         if self.InnerCrop > 0:
             for i in range(self.InnerCrop):
-                size = int(torch.rand([]) ** self.IC_Size_Pow * (max_size - min_size)+ min_size)
+                size = int(
+                    torch.rand([])**self.IC_Size_Pow * (max_size - min_size) +
+                    min_size)
                 offsetx = torch.randint(0, sideX - size + 1, ())
                 offsety = torch.randint(0, sideY - size + 1, ())
-                cutout = input[:, :, offsety: offsety + size, offsetx: offsetx + size]
+                cutout = input[:, :, offsety:offsety + size,
+                               offsetx:offsetx + size]
                 if i <= int(self.IC_Grey_P * self.InnerCrop):
                     cutout = gray(cutout)
                 cutout = resize(cutout, out_shape=output_shape)
@@ -404,13 +520,18 @@ def resample(input, size, align_corners=True):
         input = F.conv2d(input, kernel_w[None, None, None, :])
 
     input = input.reshape([n, c, h, w])
-    return F.interpolate(input, size, mode='bicubic', align_corners=align_corners)
+    return F.interpolate(input,
+                         size,
+                         mode='bicubic',
+                         align_corners=align_corners)
+
 
 padargs = {}
 
 
 def interp(t):
     return 3 * t**2 - 2 * t**3
+
 
 def perlin(width, height, scale=10, device=None):
     gx, gy = torch.randn(2, width + 1, height + 1, 1, 1, device=device)
@@ -422,14 +543,16 @@ def perlin(width, height, scale=10, device=None):
     dots += wx * wy * (gx[:-1, :-1] * xs + gy[:-1, :-1] * ys)
     dots += (1 - wx) * wy * (-gx[1:, :-1] * (1 - xs) + gy[1:, :-1] * ys)
     dots += wx * (1 - wy) * (gx[:-1, 1:] * xs - gy[:-1, 1:] * (1 - ys))
-    dots += (1 - wx) * (1 - wy) * (-gx[1:, 1:] * (1 - xs) - gy[1:, 1:] * (1 - ys))
-    return dots.permute(0, 2, 1, 3).contiguous().view(width * scale, height * scale)
+    dots += (1 - wx) * (1 - wy) * (-gx[1:, 1:] * (1 - xs) - gy[1:, 1:] *
+                                   (1 - ys))
+    return dots.permute(0, 2, 1, 3).contiguous().view(width * scale,
+                                                      height * scale)
 
 
 def perlin_ms(octaves, width, height, grayscale, device):
     out_array = [0.5] if grayscale else [0.5, 0.5, 0.5]
     for i in range(1 if grayscale else 3):
-        scale = 2 ** len(octaves)
+        scale = 2**len(octaves)
         oct_width = width
         oct_height = height
         for oct in octaves:
@@ -441,7 +564,8 @@ def perlin_ms(octaves, width, height, grayscale, device):
     return torch.cat(out_array)
 
 
-def create_perlin_noise(octaves, width, height, grayscale, side_y, side_x, device):
+def create_perlin_noise(octaves, width, height, grayscale, side_y, side_x,
+                        device):
     out = perlin_ms(octaves, width, height, grayscale, device)
     if grayscale:
         out = TF.resize(size=(side_y, side_x), img=out.unsqueeze(0))
@@ -457,17 +581,25 @@ def create_perlin_noise(octaves, width, height, grayscale, side_y, side_x, devic
 
 def regen_perlin(perlin_mode, side_y, side_x, device, batch_size):
     if perlin_mode == 'color':
-        init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1, False, side_y, side_x, device)
-        init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, False, side_y, side_x, device)
+        init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1,
+                                   False, side_y, side_x, device)
+        init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4,
+                                    False, side_y, side_x, device)
     elif perlin_mode == 'gray':
-        init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1, True, side_y, side_x, device)
-        init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
+        init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1,
+                                   True, side_y, side_x, device)
+        init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4,
+                                    True, side_y, side_x, device)
     else:
-        init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1, False, side_y, side_x, device)
-        init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
-    init = (TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device).unsqueeze(0).mul(2).sub(1))
+        init = create_perlin_noise([1.5**-i * 0.5 for i in range(12)], 1, 1,
+                                   False, side_y, side_x, device)
+        init2 = create_perlin_noise([1.5**-i * 0.5 for i in range(8)], 4, 4,
+                                    True, side_y, side_x, device)
+    init = (TF.to_tensor(init).add(
+        TF.to_tensor(init2)).div(2).to(device).unsqueeze(0).mul(2).sub(1))
     del init2
     return init.expand(batch_size, -1, -1, -1)
+
 
 def do_run(args, models, device):  # -> 'DocumentArray':
     _set_seed(args.seed)
@@ -475,7 +607,8 @@ def do_run(args, models, device):  # -> 'DocumentArray':
     model, diffusion, clip_models, secondary_model = models
     normalize = T.Normalize(
         mean=[0.48145466, 0.4578275, 0.40821073],
-        std=[0.26862954, 0.26130258, 0.27577711],)
+        std=[0.26862954, 0.26130258, 0.27577711],
+    )
     lpips_model = lpips.LPIPS(net="vgg").to(device)
 
     side_x = (args.width_height[0] // 64) * 64
@@ -490,7 +623,12 @@ def do_run(args, models, device):  # -> 'DocumentArray':
     model_stats = []
 
     for clip_model in clip_models:
-        model_stat = {"clip_model": None,"target_embeds": [],"make_cutouts": None,"weights": [],}
+        model_stat = {
+            "clip_model": None,
+            "target_embeds": [],
+            "make_cutouts": None,
+            "weights": [],
+        }
         model_stat["clip_model"] = clip_model
 
         if isinstance(args.text_prompts, str):
@@ -498,41 +636,43 @@ def do_run(args, models, device):  # -> 'DocumentArray':
 
         for prompt in args.text_prompts:
             txt, weight = parse_prompt(prompt)
-            txt = clip_model.encode_text(clip.tokenize(prompt).to(device)).float()
+            txt = clip_model.encode_text(
+                clip.tokenize(prompt).to(device)).float()
 
             model_stat["target_embeds"].append(txt)
             model_stat["weights"].append(weight)
 
         model_stat["target_embeds"] = torch.cat(model_stat["target_embeds"])
-        model_stat["weights"] = torch.tensor(model_stat["weights"], device=device)
+        model_stat["weights"] = torch.tensor(model_stat["weights"],
+                                             device=device)
         if model_stat["weights"].sum().abs() < 1e-3:
             raise RuntimeError("The weights must not sum to 0.")
         model_stat["weights"] /= model_stat["weights"].sum().abs()
         model_stats.append(model_stat)
-
-    init = None
+    #    
+    #init = None
     #if args.init_image:
     #    d = Document(uri=args.init_image).load_uri_to_image_tensor(side_x, side_y)
     #    init = TF.to_tensor(d.tensor).to(device).unsqueeze(0).mul(2).sub(1)
 
-    if args.perlin_init:
-        if args.perlin_mode == "color":
-            init = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
-            init2 = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(8)], 4, 4, False, side_y, side_x, device)
-        elif args.perlin_mode == "gray":
-            init = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(12)], 1, 1, True, side_y, side_x, device)
-            init2 = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
-        else:
-            init = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
-            init2 = create_perlin_noise(
-                [1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
-        init = (TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device).unsqueeze(0).mul(2).sub(1))
-        del init2
+    #    if args.perlin_init:
+    #        if args.perlin_mode == "color":
+    #            init = create_perlin_noise(
+    #                [1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
+    #            init2 = create_perlin_noise(
+    #                [1.5**-i * 0.5 for i in range(8)], 4, 4, False, side_y, side_x, device)
+    #        elif args.perlin_mode == "gray":
+    #            init = create_perlin_noise(
+    #                [1.5**-i * 0.5 for i in range(12)], 1, 1, True, side_y, side_x, device)
+    #            init2 = create_perlin_noise(
+    #                [1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
+    #        else:
+    #            init = create_perlin_noise(
+    #                [1.5**-i * 0.5 for i in range(12)],1,1,False,side_y,side_x,device,)
+    #            init2 = create_perlin_noise(
+    #                [1.5**-i * 0.5 for i in range(8)], 4, 4, True, side_y, side_x, device)
+    #        init = (TF.to_tensor(init).add(TF.to_tensor(init2)).div(2).to(device).unsqueeze(0).mul(2).sub(1))
+    #        del init2
 
     cur_t = None
 
@@ -542,28 +682,55 @@ def do_run(args, models, device):  # -> 'DocumentArray':
             x = x.detach().requires_grad_()
             n = x.shape[0]
             my_t = torch.ones([n], device=device, dtype=torch.long) * cur_t
-            out = diffusion.p_mean_variance(model, x, my_t, clip_denoised=False, model_kwargs={"y": y})
+            out = diffusion.p_mean_variance(model,
+                                            x,
+                                            my_t,
+                                            clip_denoised=False,
+                                            model_kwargs={"y": y})
             fac = diffusion.sqrt_one_minus_alphas_cumprod[cur_t]
             x_in = out["pred_xstart"] * fac + x * (1 - fac)
             x_in_grad = torch.zeros_like(x_in)
             for model_stat in model_stats:
                 for i in range(args.cutn_batches):
                     t_int = (int(t.item()) + 1)
-                    try: input_resolution = model_stat["clip_model"].visual.input_resolution
-                    except: input_resolution = 224
-                    cuts = MakeCutoutsDango(input_resolution,Overview=cut_overview[1000 - t_int],InnerCrop=cut_innercut[1000 - t_int],IC_Size_Pow=args.cut_ic_pow,IC_Grey_P=cut_icgray_p[1000 - t_int],)
+                    try:
+                        input_resolution = model_stat[
+                            "clip_model"].visual.input_resolution
+                    except:
+                        input_resolution = 224
+                    cuts = MakeCutoutsDango(
+                        input_resolution,
+                        Overview=cut_overview[1000 - t_int],
+                        InnerCrop=cut_innercut[1000 - t_int],
+                        IC_Size_Pow=args.cut_ic_pow,
+                        IC_Grey_P=cut_icgray_p[1000 - t_int],
+                    )
                     clip_in = normalize(cuts(x_in.add(1).div(2)))
-                    image_embeds = (model_stat["clip_model"].encode_image(clip_in).float())
-                    dists = spherical_dist_loss(image_embeds.unsqueeze(1),model_stat["target_embeds"].unsqueeze(0),)
-                    dists = dists.view([cut_overview[1000 - t_int] + cut_innercut[1000 - t_int],n,-1,])
+                    image_embeds = (
+                        model_stat["clip_model"].encode_image(clip_in).float())
+                    dists = spherical_dist_loss(
+                        image_embeds.unsqueeze(1),
+                        model_stat["target_embeds"].unsqueeze(0),
+                    )
+                    dists = dists.view([
+                        cut_overview[1000 - t_int] +
+                        cut_innercut[1000 - t_int],
+                        n,
+                        -1,
+                    ])
                     losses = dists.mul(model_stat["weights"]).sum(2).mean(0)
-                    loss_values.append(losses.sum().item())  # log loss, probably shouldn't do per cutn_batch
-                    x_in_grad += (torch.autograd.grad(losses.sum() * args.clip_guidance_scale, x_in)[0]/ args.cutn_batches)
+                    loss_values.append(losses.sum().item(
+                    ))  # log loss, probably shouldn't do per cutn_batch
+                    x_in_grad += (torch.autograd.grad(
+                        losses.sum() * args.clip_guidance_scale, x_in)[0] /
+                                  args.cutn_batches)
 
             tv_losses = tv_loss(x_in)
             range_losses = range_loss(out["pred_xstart"])
             sat_losses = torch.abs(x_in - x_in.clamp(min=-1, max=1)).mean()
-            loss = (tv_losses.sum() * args.tv_scale+ range_losses.sum() * args.range_scale+ sat_losses.sum() * args.sat_scale)
+            loss = (tv_losses.sum() * args.tv_scale +
+                    range_losses.sum() * args.range_scale +
+                    sat_losses.sum() * args.sat_scale)
             if init is not None and args.init_scale:
                 init_losses = lpips_model(x_in, init)
                 loss = loss + init_losses.sum() * args.init_scale
@@ -575,7 +742,8 @@ def do_run(args, models, device):  # -> 'DocumentArray':
                 grad = torch.zeros_like(x)
         if args.clamp_grad and not x_is_NaN:
             magnitude = grad.square().mean().sqrt()
-            return (grad * magnitude.clamp(max=args.clamp_max) / magnitude)  # min=-0.02, min=-clamp_max,
+            return (grad * magnitude.clamp(max=args.clamp_max) / magnitude
+                    )  # min=-0.02, min=-clamp_max,
         return grad
 
     if args.diffusion_sampling_mode == "ddim":
@@ -594,7 +762,12 @@ def do_run(args, models, device):  # -> 'DocumentArray':
         args.seed = new_seed
 
         display.clear_output(wait=True)
-        display.display(print_args_table(vars(args), only_non_default=True, console_print=False),image_display,)
+        display.display(
+            print_args_table(vars(args),
+                             only_non_default=True,
+                             console_print=False),
+            image_display,
+        )
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -603,15 +776,35 @@ def do_run(args, models, device):  # -> 'DocumentArray':
         cur_t = diffusion.num_timesteps - skip_steps - 1
 
         if args.perlin_init:
-            init = regen_perlin(args.perlin_mode, args.side_y, side_x, device, args.batch_size)
+            init = regen_perlin(args.perlin_mode, args.side_y, side_x, device,
+                                args.batch_size)
 
         if args.diffusion_sampling_mode == "ddim":
             samples = sample_fn(
                 model,
-                (args.batch_size, 3, side_y, side_x),clip_denoised=args.clip_denoised,model_kwargs={},cond_fn=cond_fn,progress=True,skip_timesteps=skip_steps,init_image=init,randomize_class=args.randomize_class,eta=args.eta,)
+                (args.batch_size, 3, side_y, side_x),
+                clip_denoised=args.clip_denoised,
+                model_kwargs={},
+                cond_fn=cond_fn,
+                progress=True,
+                skip_timesteps=skip_steps,
+                init_image=init,
+                randomize_class=args.randomize_class,
+                eta=args.eta,
+            )
         else:
-            samples = sample_fn(model,(args.batch_size, 3, side_y, side_x),clip_denoised=args.clip_denoised,model_kwargs={},
-                cond_fn=cond_fn,progress=True,skip_timesteps=skip_steps,init_image=init,randomize_class=args.randomize_class,order=2,)
+            samples = sample_fn(
+                model,
+                (args.batch_size, 3, side_y, side_x),
+                clip_denoised=args.clip_denoised,
+                model_kwargs={},
+                cond_fn=cond_fn,
+                progress=True,
+                skip_timesteps=skip_steps,
+                init_image=init,
+                randomize_class=args.randomize_class,
+                order=2,
+            )
 
         threads = []
         for j, sample in enumerate(samples):
@@ -619,7 +812,8 @@ def do_run(args, models, device):  # -> 'DocumentArray':
             with image_display:
                 if j % args.display_rate == 0 or cur_t == -1:
                     for _, image in enumerate(sample["pred_xstart"]):
-                        image = TF.to_pil_image(image.add(1).div(2).clamp(0, 1))
+                        image = TF.to_pil_image(
+                            image.add(1).div(2).clamp(0, 1))
                         c = Document(tags={"cur_t": cur_t})
                         c.load_pil_image_to_datauri(image)
                         image.save(f"{args.name_docarray}{_nb}.png")
@@ -629,6 +823,7 @@ def do_run(args, models, device):  # -> 'DocumentArray':
         for t in threads:
             t.join()
 
+
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
     random.seed(seed)
@@ -636,12 +831,16 @@ def _set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
 
-from . import __resources_path__
+#from . import __resources_path__
 
 with open(f"{__resources_path__}/default.yml") as ymlfile:
     default_args = yaml.load(ymlfile, Loader=Loader)
 
-def print_args_table(cfg, console=None, only_non_default: bool = True, console_print: bool = True):
+
+def print_args_table(cfg,
+                     console=None,
+                     only_non_default: bool = True,
+                     console_print: bool = True):
 
     from rich.table import Table
     from rich import box
@@ -650,7 +849,12 @@ def print_args_table(cfg, console=None, only_non_default: bool = True, console_p
     if console is None:
         console = Console()
 
-    param_str = Table(title=cfg["name_docarray"],box=box.ROUNDED,highlight=True,title_justify="left",)
+    param_str = Table(
+        title=cfg["name_docarray"],
+        box=box.ROUNDED,
+        highlight=True,
+        title_justify="left",
+    )
     param_str.add_column("Argument", justify="right")
     param_str.add_column("Value", justify="left")
 
@@ -668,3 +872,4 @@ def print_args_table(cfg, console=None, only_non_default: bool = True, console_p
     if console_print:
         console.print(param_str)
     return param_str
+
