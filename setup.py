@@ -49,7 +49,8 @@ setup(
         'pyyaml',
         'blobfile>=1.0.5',
         'tqdm',
-        'pip install git+https://github.com/openai/CLIP.git',]
+        'clip @ git+https://github.com/openai/CLIP.git',
+        'guided-diffusion @ git+https://github.com/crowsonkb/guided-diffusion.git']
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
