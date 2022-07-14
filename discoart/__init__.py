@@ -350,7 +350,7 @@ def range_loss(input):
     return (input - input.clamp(-1, 1)).pow(2).mean([1, 2, 3])
 
 
-skip_augs = False  # @param{type: 'boolean'}
+skip_augs = False
 
 
 def sinc(x):
@@ -832,6 +832,7 @@ def _set_seed(seed: int) -> None:
     torch.backends.cudnn.deterministic = True
 
 #from . import __resources_path__
+
 
 with open(f"{__resources_path__}/default.yml") as ymlfile:
     default_args = yaml.load(ymlfile, Loader=Loader)
