@@ -2,7 +2,7 @@ __version__ = "0.0.23"
 __all__ = ["create"]
 
 import os
-import sys
+#import sys
 import gc
 import copy
 import random
@@ -19,6 +19,7 @@ import subprocess
 import math
 import torchvision.transforms.functional as TF
 
+from guided_diffusion.script_util import model_and_diffusion_defaults, create_model_and_diffusion
 from docarray import Document
 from types import SimpleNamespace
 from typing import overload, List, Optional, Dict, Any
@@ -59,17 +60,6 @@ check_model_SHA = False
 
 def _wget(url, cache_dir): res = subprocess.run(['wget', url, '-q', '-P', f'{cache_dir}'])
 
-def _gitclone(url, dest): res = subprocess.run(['git', 'clone', '--depth', '1', url, dest])
-
-def _clone_repo_install(repo_url, repo_dir): 
-    if not os.path.exists(repo_dir): _gitclone(repo_url, repo_dir)
-    sys.path.append(repo_dir)
-
-def _clone_dependencies(): 
-    _clone_repo_install('https://github.com/crowsonkb/guided-diffusion', f'{cache_dir}/guided_diffusion')
-
-from guided_diffusion.script_util import model_and_diffusion_defaults, create_model_and_diffusion
-
 def load_clip_models(device,enabled: List[str], clip_models: Dict[str, Any] = {}):
 
     import clip
@@ -85,7 +75,6 @@ def load_clip_models(device,enabled: List[str], clip_models: Dict[str, Any] = {}
     return list(clip_models.values())
 
 def load_all_models(diffusion_model, use_secondary_model, fallback=False, device=torch.device('cuda:0'),):
-    _clone_dependencies()
     model_512_downloaded = False
     model_512_SHA = '9c111ab89e214862b76e1fa6a1b3f1d329b1a88281885943d2cdbe357ad57648'
     model_512_link = 'https://huggingface.co/lowlevelware/512x512_diffusion_unconditional_ImageNet/resolve/main/512x512_diffusion_uncond_finetune_008100.pt'
@@ -146,35 +135,13 @@ def load_all_models(diffusion_model, use_secondary_model, fallback=False, device
             'use_scale_shift_norm': True,
         })
 
-#    elif diffusion_model == '256x256_diffusion_uncond':
-#        model_config.update({
-#            'attention_resolutions': '32, 16, 8',
-#            'class_cond': False,
-#            'diffusion_steps':
-#            1000,  # No need to edit this, it is taken care of later.
-#            'rescale_timesteps': True,
-#            'timestep_respacing':
-#            250,  # No need to edit this, it is taken care of later.
-#            'image_size': 256,
-#            'learn_sigma': True,
-#            'noise_schedule': 'linear',
-#            'num_channels': 256,
-#            'num_head_channels': 64,
-#            'num_res_blocks': 2,
-#            'resblock_updown': True,
-#            'use_fp16': device != 'cpu',
-#            'use_scale_shift_norm': True,
-#        })
-
     secondary_model = None
     return model_config, secondary_model
-
 
 model_config, secondary_model = load_all_models(
     "512x512_diffusion_uncond_finetune_008100",
     use_secondary_model=False,
     device=device)
-
 
 def load_diffusion_model(model_config, diffusion_model, steps, device):
     timestep_respacing = f'ddim{steps}'
