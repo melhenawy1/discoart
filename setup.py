@@ -43,6 +43,8 @@ setup(
         'numpy',
         'lpips',
         'ftfy',
+        'clip'
+        'resize-right',
         'docarray[common]>=0.13.30',
         'pyyaml',
     ],

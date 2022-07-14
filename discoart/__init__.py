@@ -68,9 +68,9 @@ def _pip_install(url):
 
 
 def _clone_dependencies():
-    _pip_install('git+https://github.com/openai/CLIP.git')
+    #_pip_install('git+https://github.com/openai/CLIP.git')
     _pip_install('git+https://github.com/crowsonkb/guided-diffusion')
-    _pip_install('resize-right')
+    #_pip_install('resize-right')
 
 
 def _wget(url, outputdir):
@@ -166,25 +166,25 @@ def load_all_models(
             'use_scale_shift_norm': True,
         })
 
-    elif diffusion_model == '256x256_diffusion_uncond':
-        model_config.update({
-            'attention_resolutions': '32, 16, 8',
-            'class_cond': False,
-            'diffusion_steps':
-            1000,  # No need to edit this, it is taken care of later.
-            'rescale_timesteps': True,
-            'timestep_respacing':
-            250,  # No need to edit this, it is taken care of later.
-            'image_size': 256,
-            'learn_sigma': True,
-            'noise_schedule': 'linear',
-            'num_channels': 256,
-            'num_head_channels': 64,
-            'num_res_blocks': 2,
-            'resblock_updown': True,
-            'use_fp16': device != 'cpu',
-            'use_scale_shift_norm': True,
-        })
+#    elif diffusion_model == '256x256_diffusion_uncond':
+#        model_config.update({
+#            'attention_resolutions': '32, 16, 8',
+#            'class_cond': False,
+#            'diffusion_steps':
+#            1000,  # No need to edit this, it is taken care of later.
+#            'rescale_timesteps': True,
+#            'timestep_respacing':
+#            250,  # No need to edit this, it is taken care of later.
+#            'image_size': 256,
+#            'learn_sigma': True,
+#            'noise_schedule': 'linear',
+#            'num_channels': 256,
+#            'num_head_channels': 64,
+#            'num_res_blocks': 2,
+#            'resblock_updown': True,
+#            'use_fp16': device != 'cpu',
+#            'use_scale_shift_norm': True,
+#        })
 
     secondary_model = None
     return model_config, secondary_model
