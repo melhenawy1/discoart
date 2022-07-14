@@ -18,7 +18,7 @@ sat_scale: 0
 cutn_batches: 4
 
 diffusion_model: 512x512_diffusion_uncond_finetune_008100
-use_secondary_model: True
+use_secondary_model: False
 diffusion_sampling_mode: ddim
 
 perlin_init: False
@@ -30,15 +30,15 @@ clamp_max: 0.05
 
 randomize_class: True
 clip_denoised: False
-fuzzy_prompt: False
-rand_mag: 0.05
+#fuzzy_prompt: False
+#rand_mag: 0.05
 
-cut_overview: "[12]*400+[4]*600"
-cut_innercut: "[4]*400+[12]*600"
+cut_overview: "[14]*400+[4]*600"
+cut_innercut: "[2]*400+[12]*600"
 cut_icgray_p: "[0.2]*400+[0]*600"
 
-display_rate: 20
-n_batches: 4
+display_rate: 10
+n_batches: 2
 batch_size: 1
 batch_name: ''
 clip_models:
