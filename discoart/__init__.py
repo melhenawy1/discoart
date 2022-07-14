@@ -20,7 +20,7 @@ import torchvision.transforms.functional as TF
 
 from docarray import Document
 from types import SimpleNamespace
-from typing import overload, List, Optional, Dict
+from typing import overload, List, Optional, Dict, Any
 from yaml import Loader
 from PIL import ImageOps
 from IPython import display
@@ -61,18 +61,6 @@ logger.debug(f'`.cache` dir is set to: {cache_dir}')
 check_model_SHA = False
 
 
-def _pip_install(url):
-    res = subprocess.run(['pip', 'install', url],
-                         stdout=subprocess.PIPE).stdout.decode('utf-8')
-    logger.debug(f'pip installed {url}: {res}')
-
-
-def _clone_dependencies():
-    #_pip_install('git+https://github.com/openai/CLIP.git')
-    _pip_install('git+https://github.com/crowsonkb/guided-diffusion')
-    #_pip_install('resize-right')
-
-
 def _wget(url, outputdir):
     res = subprocess.run(['wget', url, '-q', '-P', f'{outputdir}'],
                          stdout=subprocess.PIPE).stdout.decode('utf-8')
@@ -102,7 +90,7 @@ def load_all_models(
         device=torch.device('cuda:0'),
 ):
 
-    _clone_dependencies()
+#    _clone_dependencies()
     model_512_downloaded = False
     model_512_SHA = '9c111ab89e214862b76e1fa6a1b3f1d329b1a88281885943d2cdbe357ad57648'
     model_512_link = 'https://huggingface.co/lowlevelware/512x512_diffusion_unconditional_ImageNet/resolve/main/512x512_diffusion_uncond_finetune_008100.pt'
