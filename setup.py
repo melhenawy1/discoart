@@ -49,6 +49,7 @@ setup(
         'pyyaml',
         'blobfile>=1.0.5',
         'tqdm',
+        'pip install git+https://github.com/openai/CLIP.git']
         ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',

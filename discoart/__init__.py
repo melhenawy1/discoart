@@ -2,6 +2,7 @@ __version__ = "0.0.23"
 __all__ = ["create"]
 
 import os
+import sys
 import gc
 import copy
 import random
@@ -20,8 +21,7 @@ import torchvision.transforms.functional as TF
 
 from docarray import Document
 from types import SimpleNamespace
-from guided_diffusion.script_util import model_and_diffusion_defaults, create_model_and_diffusion
-from typing import overload, List, Optional, Dict
+from typing import overload, List, Optional, Dict, Any
 from yaml import Loader
 from PIL import ImageOps
 from IPython import display
@@ -36,7 +36,6 @@ __resources_path__ = os.path.dirname(__file__)
 _clip_models_cache = {}
 cache_dir = cache_dir = f'/workspace/'
 
-
 def _get_logger():
     logger = logging.getLogger(__package__)
     _log_level = os.environ.get('DISCOART_LOG_LEVEL', 'INFO')
@@ -50,7 +49,6 @@ def _get_logger():
     return logger
 
 logger = _get_logger()
-
 if not os.path.exists(cache_dir):
     logger.info(f'Downloading models....')
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
@@ -59,14 +57,18 @@ logger.debug(f'`.cache` dir is set to: {cache_dir}')
 
 check_model_SHA = False
 
-
 def _wget(url, outputdir): res = subprocess.run(['wget', url, '-q', '-P', f'{cache_dir}'])
 
 def _gitclone(url, dest): res = subprocess.run(['git', 'clone', '--depth', '1', url, dest])
 
-def _clone_repo_install(repo_url, repo_dir): if not os.path.exists(repo_dir): _gitclone(repo_url, repo_dir): sys.path.append(repo_dir)
+def _clone_repo_install(repo_url, repo_dir): 
+    if not os.path.exists(repo_dir): _gitclone(repo_url, repo_dir)
+    sys.path.append(repo_dir)
 
 def _clone_dependencies(): _clone_repo_install('https://github.com/crowsonkb/guided-diffusion', f'{cache_dir}/guided_diffusion')
+
+_clone_dependencies()
+from guided_diffusion.script_util import model_and_diffusion_defaults, create_model_and_diffusion
 
 def load_clip_models(device,enabled: List[str], clip_models: Dict[str, Any] = {}):
 
@@ -81,7 +83,6 @@ def load_clip_models(device,enabled: List[str], clip_models: Dict[str, Any] = {}
         if k not in enabled:
             clip_models.pop(k)
     return list(clip_models.values())
-
 
 def load_all_models(diffusion_model, use_secondary_model, fallback=False, device=torch.device('cuda:0'),):
     _clone_dependencies()
