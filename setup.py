@@ -47,10 +47,9 @@ setup(
         'resize-right',
         'docarray[common]>=0.13.30',
         'pyyaml',
-        'blobfile>=1.0.5',
-        'tqdm',
-        'clip @ git+https://github.com/openai/CLIP.git',
-        'guided-diffusion @ git+https://github.com/crowsonkb/guided-diffusion.git']
+        'guided-diffusion @ git+https://github.com/crowsonkb/guided-diffusion.git',
+        'clip @ git+https://github.com/openai/CLIP.git'
+    ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
