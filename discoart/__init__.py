@@ -20,7 +20,8 @@ import torchvision.transforms.functional as TF
 
 from docarray import Document
 from types import SimpleNamespace
-from typing import overload, List, Optional, Dict, Any
+from guided_diffusion.script_util import model_and_diffusion_defaults, create_model_and_diffusion
+from typing import overload, List, Optional, Dict
 from yaml import Loader
 from PIL import ImageOps
 from IPython import display
@@ -28,13 +29,12 @@ from ipywidgets import Output
 from torch.nn import functional as F
 from resize_right import resize
 from torch import nn
-from os.path import expanduser
 from pathlib import Path
 
 device = torch.device('cuda:0')
 __resources_path__ = os.path.dirname(__file__)
 _clip_models_cache = {}
-cache_dir = f'{expanduser("~")}/.cache/{__package__}'
+cache_dir = cache_dir = f'/workspace/'
 
 
 def _get_logger():
@@ -49,7 +49,6 @@ def _get_logger():
     logger.addHandler(ch)
     return logger
 
-
 logger = _get_logger()
 
 if not os.path.exists(cache_dir):
@@ -61,15 +60,16 @@ logger.debug(f'`.cache` dir is set to: {cache_dir}')
 check_model_SHA = False
 
 
-def _wget(url, outputdir):
-    res = subprocess.run(['wget', url, '-q', '-P', f'{outputdir}'],
-                         stdout=subprocess.PIPE).stdout.decode('utf-8')
-    logger.debug(res)
+def _wget(url, outputdir): res = subprocess.run(['wget', url, '-q', '-P', f'{cache_dir}'])
 
+def _gitclone(url, dest): res = subprocess.run(['git', 'clone', '--depth', '1', url, dest])
 
-def load_clip_models(device,
-                     enabled: List[str],
-                     clip_models: Dict[str, Any] = {}):
+def _clone_repo_install(repo_url, repo_dir): if not os.path.exists(repo_dir): _gitclone(repo_url, repo_dir): sys.path.append(repo_dir)
+
+def _clone_dependencies(): _clone_repo_install('https://github.com/crowsonkb/guided-diffusion', f'{cache_dir}/guided_diffusion')
+
+def load_clip_models(device,enabled: List[str], clip_models: Dict[str, Any] = {}):
+
     import clip
     # load enabled models
     for k in enabled:
@@ -83,14 +83,8 @@ def load_clip_models(device,
     return list(clip_models.values())
 
 
-def load_all_models(
-        diffusion_model,
-        use_secondary_model,
-        fallback=False,
-        device=torch.device('cuda:0'),
-):
-
-#    _clone_dependencies()
+def load_all_models(diffusion_model, use_secondary_model, fallback=False, device=torch.device('cuda:0'),):
+    _clone_dependencies()
     model_512_downloaded = False
     model_512_SHA = '9c111ab89e214862b76e1fa6a1b3f1d329b1a88281885943d2cdbe357ad57648'
     model_512_link = 'https://huggingface.co/lowlevelware/512x512_diffusion_unconditional_ImageNet/resolve/main/512x512_diffusion_uncond_finetune_008100.pt'
@@ -128,9 +122,6 @@ def load_all_models(
         else:
             _wget(model_512_link, cache_dir)
             model_512_downloaded = True
-
-    from guided_diffusion.script_util import (
-        model_and_diffusion_defaults, )
 
     model_config = model_and_diffusion_defaults()
 
@@ -185,9 +176,6 @@ model_config, secondary_model = load_all_models(
 
 
 def load_diffusion_model(model_config, diffusion_model, steps, device):
-    from guided_diffusion.script_util import (
-        create_model_and_diffusion, )
-
     timestep_respacing = f'ddim{steps}'
     diffusion_steps = (1000 // steps) * steps if steps < 1000 else steps
     model_config.update({
@@ -861,4 +849,6 @@ def print_args_table(cfg,
     if console_print:
         console.print(param_str)
     return param_str
+
+
 

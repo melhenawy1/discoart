@@ -47,8 +47,9 @@ setup(
         'resize-right',
         'docarray[common]>=0.13.30',
         'pyyaml',
-        'guided-diffusion @ git+https://github.com/crowsonkb/guided-diffusion.git',
-    ],
+        'blobfile>=1.0.5',
+        'tqdm',
+        ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
